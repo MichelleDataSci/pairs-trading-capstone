@@ -139,28 +139,32 @@ def backtest(zscore_series, spread_series, z_entry, z_exit, z_stop, cost_per_leg
     pos = 0
 
     for i in range(1, n):
-        z_prev = z_arr[i - 1]
-        z_now  = z_arr[i]
+        z_prev = z_arr[i - 1]   # signal observed at yesterday's close
+        z_now  = z_arr[i]       # today's z-score (used only for P&L, not decisions)
 
         if np.isnan(z_prev) or np.isnan(z_now):
             continue
 
-        # --- Check exit / stop before checking new entry ---
-        if pos == 1:    # long spread: entered expecting z to rise toward 0
-            if z_now >= z_exit or z_now <= -z_stop:
-                trade_cost[i] += 2 * cost_per_leg   # close: sell DEP + buy INDEP
+        # All entry/exit decisions use z_prev — signal observed at day i-1 close,
+        # trade executed at day i open. This prevents earning the same-day spread
+        # move that triggered the signal.
+
+        # --- Check exit / stop ---
+        if pos == 1:
+            if z_prev >= z_exit or z_prev <= -z_stop:
+                trade_cost[i] += 2 * cost_per_leg
                 pos = 0
-        elif pos == -1: # short spread: entered expecting z to fall toward 0
-            if z_now <= z_exit or z_now >= z_stop:
-                trade_cost[i] += 2 * cost_per_leg   # close: buy DEP + sell INDEP
+        elif pos == -1:
+            if z_prev <= z_exit or z_prev >= z_stop:
+                trade_cost[i] += 2 * cost_per_leg
                 pos = 0
 
         # --- Check entry (only if flat) ---
         if pos == 0:
-            if z_now < -z_entry:        # spread too low -> long spread
+            if z_prev < -z_entry:
                 trade_cost[i] += 2 * cost_per_leg
                 pos = 1
-            elif z_now > z_entry:       # spread too high -> short spread
+            elif z_prev > z_entry:
                 trade_cost[i] += 2 * cost_per_leg
                 pos = -1
 

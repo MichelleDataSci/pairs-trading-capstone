@@ -179,34 +179,39 @@ Based on return correlation, price-level R², beta similarity, and visual co-mov
 
 **Setup:** Spread = log(AMZN) − 1.0405 × log(META) + 0.8742 | 30-day rolling z-score | Entry ±2σ, exit at 0, stop loss ±3σ | 10 bps per leg | Train: 2018-2021, Test: 2022-2025
 
+**Execution convention:** signal observed at day i close, trade executes at day i+1 (next-day execution — no same-day look-ahead).
+
 **Out-of-sample test performance (2022-2025):**
 
 | Metric | Value |
 |--------|-------|
-| Total P&L | −2.5876 |
-| Annualised Sharpe | −1.90 |
-| Max drawdown | −2.6862 |
-| Win rate | 48.2% |
-| Time in market | 59.4% |
+| Total P&L | −0.154 |
+| Annualised Sharpe | −0.12 |
+| Max drawdown | −0.653 |
+| Win rate | 52.3% |
+| Time in market | ~59% |
 
-**Walk-forward results (0 of 7 years profitable):**
+**Walk-forward results (4 of 7 years profitable):**
 
 | Year | Hedge Ratio | R² | Sharpe | P&L |
 |------|-------------|-----|--------|-----|
-| 2019 | 0.051 | 0.003 | −1.48 | −0.206 |
-| 2020 | 0.296 | 0.098 | −1.46 | −0.368 |
-| 2021 | 1.125 | 0.698 | −1.20 | −0.267 |
-| 2022 | 1.041 | 0.834 | −2.14 | −1.094 |
-| 2023 | 0.790 | 0.621 | −2.62 | −0.572 |
-| 2024 | 0.727 | 0.612 | −1.86 | −0.409 |
-| 2025 | 0.629 | 0.706 | −1.57 | −0.320 |
+| 2019 | 0.051 | 0.003 | +0.04 | +0.006 |
+| 2020 | 0.296 | 0.098 | +0.62 | +0.138 |
+| 2021 | 1.125 | 0.698 | +0.68 | +0.137 |
+| 2022 | 1.041 | 0.834 | −0.17 | −0.084 |
+| 2023 | 0.790 | 0.621 | −0.36 | −0.077 |
+| 2024 | 0.727 | 0.612 | −0.17 | −0.030 |
+| 2025 | 0.629 | 0.706 | +0.58 | +0.109 |
+
+**Average annual Sharpe: +0.18. Total walk-forward P&L: +0.199.**
 
 **Key findings:**
-- Cointegration confirmed statistically does NOT guarantee a profitable strategy
-- The hedge ratio is structurally unstable — ranges from 0.051 (2018-only training) to 1.125 (2018-2020) — the cointegrating relationship only emerged strongly after 2020
-- 2022 was the worst year (Sharpe −2.14): META fell ~65% and AMZN ~50% for different reasons, the spread diverged far beyond ±3σ and stayed there for months
-- Win rate near 50% but losses are larger than wins — spread continues to diverge after entry before eventually reverting (timing problem, not direction problem)
-- Sentiment overlay (Phase 4) may help filter out entries during macro stress periods
+- Strategy is marginally positive on a walk-forward basis (4 of 7 years profitable, total PnL +0.199)
+- Performance strongest in 2020-2021 when hedge ratio stabilised (R² ≥ 0.70) and weakest in 2022-2024 when regime shifted
+- The cointegrating relationship only became reliable after 2020 — in 2018-2019 R² was near zero
+- Win rate consistently above 50% — direction signal works; Sharpe is modest due to small per-day P&L magnitude
+- 2022 losses contained (Sharpe −0.17) despite META −65% and AMZN −50%
+- Sentiment overlay (Phase 4) may help filter entries during macro stress periods
 
 ### Phase 3 Output Files
 
