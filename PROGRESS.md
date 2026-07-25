@@ -144,7 +144,7 @@ Based on return correlation, price-level R², beta similarity, and visual co-mov
 3. **GOOGL / AAPL** — strong correlation (0.622), similar betas, clean scatter (R=0.927)
 
 **Caution flags:**
-- NVDA decoupled from all peers from mid-2023 onward due to AI-driven price surge — test over 2018-2022 sub-period only
+- NVDA decoupled from all peers from mid-2023 onward due to AI-driven price surge — sub-period check (2018-2022) was run in Phase 3 and all NVDA pairs still failed both tests
 - META has structural regime break in 2022 (-75% drawdown) — single-day kurtosis events inflate spread risk
 - 2022 is the critical stress year for all backtests
 
@@ -171,7 +171,8 @@ Based on return correlation, price-level R², beta similarity, and visual co-mov
 
 **Key findings:**
 - High return correlation (MSFT/GOOGL = 0.709) does NOT imply cointegration — their price levels diverged over 8 years
-- All 5 NVDA pairs fail — NVDA's 37x price gain from mid-2023 (AI/GPU surge) breaks any long-run equilibrium
+- All 5 NVDA pairs fail over the full 2018-2025 window — NVDA's 37x price gain from mid-2023 (AI/GPU surge) breaks any long-run equilibrium
+- NVDA sub-period check (2018-2022 only) also run to remove the structural break: all 5 pairs still fail (EG p-values worsen — NVDA/AMZN rises from 0.122 to 0.755, NVDA/META from 0.469 to 0.945). NVDA had no cointegrating relationship with peers even before the AI surge
 - AMZN/META Johansen trace stat = 17.52 vs 5% critical value = 15.49
 
 ### Phase 3b — Pairs Trading Strategy (AMZN/META)
@@ -261,5 +262,5 @@ Currently a stub. To be built once Phases 3 and 4 are complete.
 | **First-row NaN drop** | The shift(1) return calculation produces a NaN on row 0. Phase 1 detects and drops only that row using `first_valid_index()` rather than a blanket `dropna()`. |
 | **Windows encoding** | Unicode characters (arrows, ellipsis) in print statements caused `cp1252` codec errors on Windows. All print statements use plain ASCII only. |
 | **Matplotlib backend** | `matplotlib.use("Agg")` is set at the top of `phase2_eda.py` to prevent display errors when running headlessly on Windows without a display server. |
-| **NVDA sub-period note** | NVDA's price increased ~37x over the full period. Any cointegration test run on the full 2018-2025 window for NVDA pairs is expected to fail. Restrict to 2018-2022 for NVDA. |
+| **NVDA sub-period note** | NVDA's price increased ~37x over the full period. Phase 3 tested all 5 NVDA pairs over both the full 2018-2025 window and the restricted 2018-2022 window. All pairs failed both EG and Johansen in both windows. Results in `outputs/reports/nvda_subperiod_results.csv`. |
 | **2022 stress year** | All backtests must be evaluated through the 2022 bear market (META -75%, NVDA -55%, AMZN -50%). This is the critical period for strategy robustness. |
