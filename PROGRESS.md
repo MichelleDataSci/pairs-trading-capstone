@@ -1,6 +1,6 @@
 # Project Progress — Pairs Trading Analytics
-**Last updated:** 2026-05-09
-**Status:** Phase 2 complete. Phase 3 next.
+**Last updated:** 2026-07-25
+**Status:** Phase 3 complete (cointegration screening + strategy backtest). Phase 4 next.
 
 ---
 
@@ -18,7 +18,8 @@ This project builds an end-to-end quantitative pair trading strategy for 6 large
 |-------|---------|------|--------|
 | 1 | `phase1_data.py` | Master data creation — download, clean, merge | COMPLETE |
 | 2 | `phase2_eda.py` | Exploratory data analysis — 8 charts + 2 reports | COMPLETE |
-| 3 | `phase3_cointegration.py`, `phase3_strategy.py` | Cointegration screening + backtesting engine | NOT STARTED |
+| 3a | `phase3_cointegration.py` | Cointegration screening — all 15 pairs, EG + Johansen | COMPLETE |
+| 3b | `phase3_strategy.py` | Pairs trading strategy — AMZN/META, z-score backtest | COMPLETE |
 | 4 | `phase4_sentiment.py` | News sentiment scoring + strategy overlay | NOT STARTED |
 | 5 | `app/app.py` | Streamlit interactive dashboard | STUB ONLY |
 
@@ -149,31 +150,80 @@ Based on return correlation, price-level R², beta similarity, and visual co-mov
 
 ---
 
-## 4. Outstanding Work — Phases 3, 4, and 5
+## 4. Phase 3 — Cointegration Screening (COMPLETE)
 
-### Phase 3a — Cointegration Screening (`phase3_cointegration.py`)
+**Scripts:** `src/phase3_cointegration.py`, `src/phase3_strategy.py`
+**Full report:** `outputs/reports/phase3_report.md`
 
-- [ ] Load price levels from `data/raw/` for all 6 tickers
-- [ ] Run ADF test on each individual price series to confirm non-stationarity (I(1))
-- [ ] Run Engle-Granger cointegration test on all 15 pairs
-- [ ] Run Johansen test on priority pairs for robustness
-- [ ] Test NVDA pairs over restricted 2018-2022 window
-- [ ] Rank passing pairs by ADF test statistic on residuals
-- [ ] Save cointegration results table to `outputs/reports/cointegration_results.csv`
-- [ ] Plot spread (residual) series for all passing pairs
+### Phase 3a — Cointegration Screening
 
-### Phase 3b — Pairs Trading Strategy (`phase3_strategy.py`)
+**Method:** OLS regression on log prices in both directions (A~B and B~A); direction with lower ADF p-value on residuals is selected. Engle-Granger test (`statsmodels.tsa.stattools.coint`) and Johansen test applied to all 15 pairs. Pairs ranked by EG p-value.
 
-- [ ] Estimate hedge ratio (OLS) for each cointegrated pair
-- [ ] Construct spread series: `spread = price_A - hedge_ratio * price_B`
-- [ ] Compute rolling z-score of spread (30-day window)
-- [ ] Implement signal logic: enter long/short at z > ±2, exit at z = 0, stop at z > ±3
-- [ ] Backtest: simulate daily P&L with transaction costs
-- [ ] Compute performance metrics: Sharpe ratio, max drawdown, win rate, total return
-- [ ] Walk-forward validation with annual parameter re-estimation
-- [ ] Stress test over 2022 bear market period
-- [ ] Save performance summary to `outputs/reports/strategy_results.csv`
-- [ ] Save equity curve and z-score charts to `outputs/charts/`
+**Result: Only 1 pair passed both tests at 5% significance — AMZN/META.**
+
+| Rank | Pair | OLS Direction | Hedge Ratio | EG p-value | EG | Johansen |
+|------|------|---------------|-------------|------------|-----|----------|
+| 1 | AMZN/META | AMZN~META | 0.5976 | 0.0144 | PASS | PASS |
+| 2 | NVDA/AMZN | AMZN~NVDA | 0.2392 | 0.1220 | FAIL | FAIL |
+| 3 | GOOGL/AMZN | AMZN~GOOGL | 0.6671 | 0.1844 | FAIL | FAIL |
+| 4 | MSFT/AAPL | MSFT~AAPL | 0.8711 | 0.2032 | FAIL | FAIL |
+| 15 | MSFT/GOOGL | MSFT~GOOGL | 1.1214 | 0.7091 | FAIL | FAIL |
+
+**Key findings:**
+- High return correlation (MSFT/GOOGL = 0.709) does NOT imply cointegration — their price levels diverged over 8 years
+- All 5 NVDA pairs fail — NVDA's 37x price gain from mid-2023 (AI/GPU surge) breaks any long-run equilibrium
+- AMZN/META Johansen trace stat = 17.52 vs 5% critical value = 15.49
+
+### Phase 3b — Pairs Trading Strategy (AMZN/META)
+
+**Setup:** Spread = log(AMZN) − 1.0405 × log(META) + 0.8742 | 30-day rolling z-score | Entry ±2σ, exit at 0, stop loss ±3σ | 10 bps per leg | Train: 2018-2021, Test: 2022-2025
+
+**Out-of-sample test performance (2022-2025):**
+
+| Metric | Value |
+|--------|-------|
+| Total P&L | −2.5876 |
+| Annualised Sharpe | −1.90 |
+| Max drawdown | −2.6862 |
+| Win rate | 48.2% |
+| Time in market | 59.4% |
+
+**Walk-forward results (0 of 7 years profitable):**
+
+| Year | Hedge Ratio | R² | Sharpe | P&L |
+|------|-------------|-----|--------|-----|
+| 2019 | 0.051 | 0.003 | −1.48 | −0.206 |
+| 2020 | 0.296 | 0.098 | −1.46 | −0.368 |
+| 2021 | 1.125 | 0.698 | −1.20 | −0.267 |
+| 2022 | 1.041 | 0.834 | −2.14 | −1.094 |
+| 2023 | 0.790 | 0.621 | −2.62 | −0.572 |
+| 2024 | 0.727 | 0.612 | −1.86 | −0.409 |
+| 2025 | 0.629 | 0.706 | −1.57 | −0.320 |
+
+**Key findings:**
+- Cointegration confirmed statistically does NOT guarantee a profitable strategy
+- The hedge ratio is structurally unstable — ranges from 0.051 (2018-only training) to 1.125 (2018-2020) — the cointegrating relationship only emerged strongly after 2020
+- 2022 was the worst year (Sharpe −2.14): META fell ~65% and AMZN ~50% for different reasons, the spread diverged far beyond ±3σ and stayed there for months
+- Win rate near 50% but losses are larger than wins — spread continues to diverge after entry before eventually reverting (timing problem, not direction problem)
+- Sentiment overlay (Phase 4) may help filter out entries during macro stress periods
+
+### Phase 3 Output Files
+
+| File | Description |
+|------|-------------|
+| `outputs/reports/cointegration_results.csv` | Full EG + Johansen results, all 15 pairs |
+| `outputs/reports/strategy_results.csv` | Backtest + walk-forward performance metrics |
+| `outputs/reports/phase3_report.md` | Full written analytical report |
+| `outputs/charts/spread_series_all_pairs.png` | OLS residual plots, all 15 pairs |
+| `outputs/charts/cointegration_ranking.png` | EG p-value ranking bar chart |
+| `outputs/charts/strategy_zscore_equity.png` | Z-score signals + equity curve (test period) |
+| `outputs/charts/strategy_walkforward.png` | Annual Sharpe + P&L bar charts |
+| `outputs/charts/strategy_zscore_full.png` | Full period z-score (2018-2025) |
+| `outputs/charts/strategy_annual_equity.png` | Annual equity curves (walk-forward) |
+
+---
+
+## 5. Outstanding Work — Phases 4 and 5
 
 ### Phase 4 — Sentiment Analysis (`phase4_sentiment.py`)
 
@@ -199,7 +249,7 @@ Currently a stub. To be built once Phases 3 and 4 are complete.
 
 ---
 
-## 5. Important Notes and Decisions
+## 6. Important Notes and Decisions
 
 | Decision | Detail |
 |----------|--------|
