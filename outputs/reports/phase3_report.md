@@ -71,13 +71,27 @@ The pairs most correlated in Phase 2 EDA — MSFT/GOOGL (return correlation 0.70
 
 A pair can be highly correlated in returns but have price levels that diverge permanently — which is what MSFT/GOOGL and MSFT/AAPL show over 2018-2025.
 
-#### Finding 3: NVDA pairs all fail
+#### Finding 3: NVDA pairs fail over both the full period and the restricted 2018-2022 window
 
-NVDA's 37x price appreciation between 2023 and 2025 (driven by the AI/GPU demand surge) broke any long-run equilibrium it might have held with other stocks. All 5 NVDA pairs fail both tests. The structural break in NVDA's price trend from mid-2023 onward dominates any pre-existing cointegrating relationship.
+The Phase 2 EDA report recommended testing NVDA pairs over a restricted 2018-2022 window to remove the structural break caused by the AI/GPU-driven price surge from mid-2023. Both tests were run.
 
-#### Finding 4: AMZN appears frequently as the independent variable
+**Full period (2018-2025):** All 5 NVDA pairs fail both EG and Johansen tests (EG p-values range from 0.122 to 0.583).
 
-In 7 of the 15 pairs, AMZN's log price was selected as the independent variable (AMZN~X was the less stationary direction; X~AMZN was better). This suggests AMZN's price level is a relatively stronger "driver" in these long-run relationships — consistent with AMZN's broader exposure to cloud (AWS) and consumer sectors making it a bellwether.
+**Restricted window (2018-2022):** All 5 NVDA pairs still fail both tests. EG p-values in the restricted window are actually worse than the full period for most pairs (NVDA/AMZN rises from p=0.122 to p=0.755; NVDA/META from p=0.469 to p=0.945).
+
+| Pair | Full period EG p | 2018-2022 EG p | Full EG | Restricted EG |
+|------|------------------|----------------|---------|---------------|
+| MSFT/NVDA | 0.246 | 0.408 | FAIL | FAIL |
+| GOOGL/NVDA | 0.485 | 0.344 | FAIL | FAIL |
+| NVDA/AAPL | 0.583 | 0.431 | FAIL | FAIL |
+| NVDA/AMZN | 0.122 | 0.755 | FAIL | FAIL |
+| NVDA/META | 0.469 | 0.945 | FAIL | FAIL |
+
+This result indicates that NVDA was not cointegrated with any of its tech peers even before the 2023 AI surge. The structural break confirmed in Phase 2 EDA was a continuation of an already unstable relationship, not the sole cause of cointegration failure.
+
+#### Finding 4: AMZN appears frequently as the dependent variable
+
+In 5 of the 15 pairs, AMZN's log price was selected as the dependent variable (the AMZN~X direction produced more stationary residuals than X~AMZN). In the notation A~B, A is the dependent variable regressed on B as the independent variable. This pattern suggests that modelling AMZN as a function of its peers captures the long-run relationship better than the reverse, consistent with AMZN having broad macro sensitivity (AWS cloud, consumer spending) that ties it to movements in other large-cap tech stocks.
 
 #### Finding 5: The next-closest pairs (NVDA/AMZN and GOOGL/AMZN) do not pass
 
@@ -177,6 +191,7 @@ The win rate of roughly 48-53% across years (near coin-flip) combined with consi
 | File | Description |
 |------|-------------|
 | `outputs/reports/cointegration_results.csv` | Full test results for all 15 pairs |
+| `outputs/reports/nvda_subperiod_results.csv` | NVDA pairs re-tested on 2018-2022 window |
 | `outputs/reports/strategy_results.csv` | Backtest and walk-forward performance metrics |
 | `outputs/charts/spread_series_all_pairs.png` | OLS residual plots for all 15 pairs |
 | `outputs/charts/cointegration_ranking.png` | EG p-value ranking bar chart |
