@@ -20,6 +20,8 @@ Three methods were applied to every pair:
 
 All pairs ranked by EG p-value (ascending = stronger evidence).
 
+**Selection criterion:** a pair was selected for trading if and only if it passed both the Engle-Granger test and the Johansen test at the 5% significance level. Requiring agreement from two independent methods — one residual-based and one multivariate — reduces the risk of selecting a spurious pair that passes a single test by chance. Of the 15 pairs screened, **only AMZN/META met this criterion** and was taken forward to the strategy phase.
+
 ---
 
 ### Results — All 15 Pairs Ranked
