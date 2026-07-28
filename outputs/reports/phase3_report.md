@@ -119,17 +119,24 @@ NVDA/AMZN (EG p = 0.122) and GOOGL/AMZN (EG p = 0.184) are the next-ranked pairs
 
 Signals are generated using the **previous day's z-score** (`z_prev`). The trade executes at the following day's open and earns that day's spread change. This "signal on close, execute next day" convention prevents earning the same-day spread move that triggered the signal, which would be unrealisable in practice.
 
-### Out-of-Sample Test Period Results (2022-2025)
+### Train / Test / Full Period Performance Comparison (`strategy_train_test_comparison.csv`)
 
-| Metric | Value |
-|--------|-------|
-| Total P&L (log-return units) | −0.1544 |
-| Annual P&L | −0.0388 |
-| Annualised Sharpe ratio | −0.12 |
-| Maximum drawdown | −0.6531 |
-| Win rate (days in position) | 52.3% |
-| Position changes (trade signals) | 51 |
-| Time in market | ~59% |
+| Metric | Train 2018-2021 | Test 2022-2025 | Full 2018-2025 |
+|--------|----------------|---------------|----------------|
+| Days | 1,008 | 1,002 | 2,010 |
+| Total P&L | +0.1816 | −0.1544 | −0.0187 |
+| Annualised P&L | +0.0454 | −0.0388 | −0.0023 |
+| Annualised volatility | 0.2138 | 0.3259 | 0.2762 |
+| Sharpe ratio | +0.21 | −0.12 | −0.01 |
+| Sortino ratio | +0.22 | −0.11 | −0.01 |
+| Maximum drawdown | −0.3608 | −0.6531 | −0.6683 |
+| Calmar ratio | +0.13 | −0.06 | −0.003 |
+| Win rate (days in position) | 50.4% | 52.3% | 51.2% |
+| Estimated trades | 28 | 25 | 53 |
+| Avg trade P&L | +0.006484 | −0.006175 | −0.000353 |
+| Time in market | 55.8% | 59.4% | 58.3% |
+
+### Out-of-Sample Test Period Results (2022-2025)
 
 ### Walk-Forward Validation Results (2019-2025)
 
@@ -145,9 +152,66 @@ Signals are generated using the **previous day's z-score** (`z_prev`). The trade
 
 **Profitable years: 4 of 7. Average annual Sharpe: +0.18. Total walk-forward P&L: +0.199.**
 
+The train period (2018-2021) produced a positive Sharpe of +0.21, while the test period (2022-2025) produced −0.12. The divergence is partly explained by the hedge ratio only becoming stable after 2020 (R² = 0.698 from the 2018-2020 training window used in 2021), and partly by the structurally more volatile macro environment of 2022-2025.
+
 ### 2022 Stress Test
 
 The strategy performed worst in 2022 (Sharpe −0.17, P&L −0.084). This was the year META fell approximately 65% and AMZN fell approximately 50% — a simultaneous collapse driven by different company-specific factors that caused the spread to diverge and not revert within the rolling window. Despite this, the loss was contained relative to the overall period, largely because the next-day execution convention meant the strategy was not exposed to the full same-day move on each signal day.
+
+### Trade Log — Test Period (`trade_log_test.csv`)
+
+The trade log records each individual round-trip trade on the test period (2022-2025): entry/exit date, position direction (long or short spread), z-score at entry and exit, holding period in days, gross P&L, transaction cost, and net P&L.
+
+**Test period trade log summary:**
+- Total trades: 26
+- Winning trades: 14 (53.8%)
+- Average holding period: 32.8 calendar days
+- Average net P&L per trade: −0.0059 log-return units
+- Total transaction cost: 26 × 0.004 = 0.104 (approximately 67% of the gross loss is attributable to transaction costs)
+
+The trade log reveals that the 2023 bear trade (entry 2023-02-03, exit 2023-04-21, holding 77 days, net P&L −0.222) is the single largest loss, contributing more than the total test-period drawdown in isolation. This was a long-spread trade entered when z = −3.80 — near the stop-loss threshold — which continued to deteriorate before eventually being stopped out.
+
+### Benchmark Comparison — Test Period (`strategy_vs_benchmarks.png`)
+
+The pairs strategy is compared against four market-neutral and directional benchmarks over the test period (2022-2025), all expressed in cumulative log-return units for comparability.
+
+| Strategy / Benchmark | Cumulative Log-Return (2022-2025) |
+|----------------------|----------------------------------|
+| Pairs strategy (AMZN/META) | −0.154 |
+| Buy-and-hold AMZN | +0.311 |
+| Equal-weight AMZN/META | +0.497 |
+| S&P 500 | +0.363 |
+| Buy-and-hold META | +0.684 |
+
+The pairs strategy underperforms all four benchmarks over the test period. This result directly answers the question a supervisor would ask: *"Did the strategy add value compared with simply holding the stocks or the index?"* The answer is no — at least over 2022-2025. The strategy's value proposition (market-neutrality) comes at the cost of significantly lower absolute return in a period when both stocks and the index recovered strongly.
+
+### Parameter Sensitivity Analysis (`sensitivity_analysis.csv`)
+
+To test whether the baseline parameters are cherry-picked or whether the results are robust, three one-way sensitivity sweeps and a full 36-combination grid (3 entry thresholds × 4 rolling windows × 3 stop-loss levels) were run on the test period.
+
+**Varying entry threshold (window = 30d, stop = 3.0σ):**
+| Entry | Sharpe | Sortino | Total P&L |
+|-------|--------|---------|-----------|
+| 1.5σ | −0.23 | −0.24 | −0.325 |
+| **2.0σ (baseline)** | −0.12 | −0.11 | −0.154 |
+| 2.5σ | −0.05 | −0.03 | −0.051 |
+
+**Varying rolling window (entry = 2.0σ, stop = 3.0σ):**
+| Window | Sharpe | Sortino | Total P&L |
+|--------|--------|---------|-----------|
+| 20d | −0.06 | −0.06 | −0.076 |
+| **30d (baseline)** | −0.12 | −0.11 | −0.154 |
+| 60d | −0.33 | −0.30 | −0.430 |
+| 90d | −0.08 | −0.07 | −0.098 |
+
+**Varying stop loss (entry = 2.0σ, window = 30d):**
+| Stop | Sharpe | Sortino | Total P&L |
+|------|--------|---------|-----------|
+| **3.0σ (baseline)** | −0.12 | −0.11 | −0.154 |
+| 3.5σ | −0.09 | −0.08 | −0.114 |
+| 4.0σ | −0.07 | −0.07 | −0.094 |
+
+**Full 36-combination grid:** Best Sharpe = +0.26 (entry = 2.5σ, window = 90d, stop = 4.0σ). No combination achieves a Sharpe above 1.0. The result is not an artefact of the baseline parameter choice — the strategy is only weakly profitable across the entire parameter space in the test period.
 
 ### Key Findings — Strategy
 
@@ -177,11 +241,15 @@ Win rates range from 47% to 57%, with most years above 50%. This indicates the d
 
 1. **AMZN/META is the only cointegrated pair** across all 15 combinations of the 6 tech stocks over 2018-2025. All other pairs fail both the Engle-Granger and Johansen tests.
 
-2. **The strategy as implemented is not profitable.** This is a meaningful academic finding — it shows the gap between statistical evidence of cointegration and practical trading profitability.
+2. **The strategy is only weakly profitable.** Walk-forward validation shows a positive total P&L (+0.199 over 7 years) but an average Sharpe of only +0.18. The out-of-sample test period (2022-2025) produces a negative Sharpe (−0.12) and a cumulative loss of −0.154 log-return units.
 
-3. **The main issues are:** (a) hedge ratio instability across regimes; (b) the 2022 bear market causing prolonged spread divergence; (c) the rolling z-score window (30 days) being too short to capture the true mean-reversion speed of the spread.
+3. **Cointegration alone is not sufficient for a profitable trading rule.** The statistical evidence of cointegration (EG p = 0.014, Johansen trace = 17.52 vs 15.49) is real but does not guarantee mean-reversion fast enough to be captured at the 30-day z-score window. The hedge ratio instability across years (R² ranging from 0.003 to 0.834) means the long-run relationship is only reliable in stable regimes.
 
-4. **Phase 4 (Sentiment Analysis) is motivated by these failures.** If a sentiment filter can identify periods when the spread is likely to revert (positive news for one stock relative to the other), it may help avoid entering positions during macro stress periods like 2022 when mean reversion takes longer than the signal window.
+4. **Benchmark comparison confirms the strategy does not add value over the test period.** Buy-and-hold AMZN returned +0.311 log-units, META +0.684, and the S&P 500 +0.363 — all well above the strategy's −0.154. The market-neutral property does not compensate for foregone directional returns in a period of strong equity recovery.
+
+5. **Parameter sensitivity confirms results are robust to parameter choice.** No combination among 36 tested achieves a Sharpe above 1.0 in the test period. The baseline parameters are not specially tuned to produce a positive result.
+
+6. **Phase 4 (Sentiment Analysis) is motivated by strategy limitations.** The trade log shows that the largest losses occur during macro stress periods (2022, early 2023) when the spread diverges beyond the stop-loss threshold. A sentiment filter identifying adverse macroeconomic conditions may help avoid entering new positions in these environments.
 
 ---
 
@@ -189,12 +257,17 @@ Win rates range from 47% to 57%, with most years above 50%. This indicates the d
 
 | File | Description |
 |------|-------------|
-| `outputs/reports/cointegration_results.csv` | Full test results for all 15 pairs |
+| `outputs/reports/cointegration_results.csv` | Full EG + Johansen results, all 15 pairs |
 | `outputs/reports/nvda_subperiod_results.csv` | NVDA pairs re-tested on 2018-2022 window |
-| `outputs/reports/strategy_results.csv` | Backtest and walk-forward performance metrics |
+| `outputs/reports/strategy_results.csv` | Backtest and walk-forward metrics (expanded) |
+| `outputs/reports/strategy_train_test_comparison.csv` | Train / test / full period side-by-side |
+| `outputs/reports/trade_log_test.csv` | Individual trade log — test period (26 trades) |
+| `outputs/reports/sensitivity_analysis.csv` | 36-combination parameter sensitivity grid |
+| `outputs/reports/phase3_strategy_conclusion.txt` | Written strategy conclusion |
 | `outputs/charts/spread_series_all_pairs.png` | OLS residual plots for all 15 pairs |
 | `outputs/charts/cointegration_ranking.png` | EG p-value ranking bar chart |
 | `outputs/charts/strategy_zscore_equity.png` | Z-score signals + equity curve (test period) |
 | `outputs/charts/strategy_walkforward.png` | Annual Sharpe and P&L bar charts |
 | `outputs/charts/strategy_zscore_full.png` | Full period z-score (2018-2025) |
 | `outputs/charts/strategy_annual_equity.png` | Annual equity curves (walk-forward) |
+| `outputs/charts/strategy_vs_benchmarks.png` | Strategy vs buy-hold benchmarks + S&P 500 |

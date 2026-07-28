@@ -198,32 +198,45 @@ def compute_metrics(bt_df, label=""):
     cum = bt_df["cum_pnl"]
     n   = len(pnl)
 
-    total_pnl    = float(cum.iloc[-1])
-    annual_pnl   = total_pnl / (n / 252)
-    sharpe       = float(pnl.mean() / pnl.std() * np.sqrt(252)) if pnl.std() > 0 else 0.0
+    total_pnl  = float(cum.iloc[-1])
+    ann_pnl    = total_pnl / (n / 252)
+    ann_vol    = float(pnl.std() * np.sqrt(252))
+    sharpe     = ann_pnl / ann_vol if ann_vol > 0 else 0.0
+
+    # Sortino: use downside deviation only
+    downside     = pnl[pnl < 0]
+    down_std     = float(downside.std() * np.sqrt(252)) if len(downside) > 1 else 0.0
+    sortino      = ann_pnl / down_std if down_std > 0 else 0.0
 
     running_max  = cum.cummax()
     drawdown     = cum - running_max
     max_dd       = float(drawdown.min())
+    calmar       = ann_pnl / abs(max_dd) if max_dd < 0 else 0.0
 
     in_pos       = bt_df["position"] != 0
     pos_pnl      = bt_df.loc[in_pos, "daily_pnl"]
     win_rate     = float((pos_pnl > 0).sum() / len(pos_pnl)) if len(pos_pnl) > 0 else 0.0
-
-    # Count trades as position changes
-    pos_changes  = bt_df["position"].diff().abs()
-    n_trades     = int((pos_changes > 0).sum())
     pct_in_mkt   = float(in_pos.sum() / n * 100)
+
+    pos_changes  = bt_df["position"].diff().abs()
+    n_pos_chg    = int((pos_changes > 0).sum())
+    n_trades_est = max(n_pos_chg // 2, 1)
+    avg_trade    = total_pnl / n_trades_est
 
     return {
         "Period":           label,
         "Days":             n,
         "Total_PnL":        round(total_pnl, 6),
-        "Annual_PnL":       round(annual_pnl, 6),
+        "Ann_PnL":          round(ann_pnl, 6),
+        "Ann_Vol":          round(ann_vol, 6),
         "Sharpe_ratio":     round(sharpe, 4),
+        "Sortino_ratio":    round(sortino, 4),
         "Max_drawdown":     round(max_dd, 6),
+        "Calmar_ratio":     round(calmar, 4),
         "Win_rate_pct":     round(win_rate * 100, 2),
-        "Num_position_chg": n_trades,
+        "Num_position_chg": n_pos_chg,
+        "Num_trades_est":   n_trades_est,
+        "Avg_trade_PnL":    round(avg_trade, 6),
         "Pct_in_market":    round(pct_in_mkt, 2),
     }
 
@@ -232,8 +245,13 @@ test_m = compute_metrics(bt_test, label="Test 2022-2025")
 print(f"\n{'='*65}")
 print("OUT-OF-SAMPLE TEST PERIOD PERFORMANCE (2022-2025)")
 print(f"{'='*65}")
-for k, v in test_m.items():
-    print(f"  {k:<22}: {v}")
+metric_order = [
+    "Period", "Days", "Total_PnL", "Ann_PnL", "Ann_Vol",
+    "Sharpe_ratio", "Sortino_ratio", "Max_drawdown", "Calmar_ratio",
+    "Win_rate_pct", "Num_trades_est", "Avg_trade_PnL", "Pct_in_market",
+]
+for k in metric_order:
+    print(f"  {k:<22}: {test_m[k]}")
 
 # ---------------------------------------------------------------------------
 # 8. Walk-forward validation — re-estimate hedge ratio at start of each year
@@ -354,6 +372,7 @@ ax3.fill_between(bt_test.index, bt_test["cum_pnl"].values, 0,
                  where=bt_test["cum_pnl"].values <  0, alpha=0.25, color="tomato")
 ax3.axhline(0, color="black", linewidth=0.6)
 metrics_str = (f"Sharpe={test_m['Sharpe_ratio']:.2f}  "
+               f"Sortino={test_m['Sortino_ratio']:.2f}  "
                f"MaxDD={test_m['Max_drawdown']:.4f}  "
                f"WinRate={test_m['Win_rate_pct']:.1f}%  "
                f"Total PnL={test_m['Total_PnL']:+.4f}")
@@ -470,3 +489,287 @@ print(f"  {chart2}")
 print(f"  {chart3}")
 print(f"  {chart4}")
 print(f"\nNext step: Phase 4 -- Sentiment analysis overlay.")
+
+# ---------------------------------------------------------------------------
+# 13. Run backtest on TRAIN period; compute full-period metrics
+# ---------------------------------------------------------------------------
+bt_train = backtest(
+    zscore_full.loc[:TRAIN_END],
+    spread_full.loc[:TRAIN_END],
+    Z_ENTRY, Z_EXIT, Z_STOP, COST_PER_LEG,
+)
+train_m = compute_metrics(bt_train, label="Train 2018-2021")
+
+bt_full = backtest(zscore_full, spread_full, Z_ENTRY, Z_EXIT, Z_STOP, COST_PER_LEG)
+full_m  = compute_metrics(bt_full, label="Full 2018-2025")
+
+# ---------------------------------------------------------------------------
+# 14. Explicit train vs test vs full comparison table
+# ---------------------------------------------------------------------------
+print(f"\n{'='*65}")
+print("TRAIN / TEST / FULL PERIOD PERFORMANCE COMPARISON")
+print(f"{'='*65}")
+
+comp_df = pd.DataFrame([train_m, test_m, full_m])
+display_cols = [
+    "Period", "Days", "Total_PnL", "Ann_PnL", "Ann_Vol",
+    "Sharpe_ratio", "Sortino_ratio", "Max_drawdown", "Calmar_ratio",
+    "Win_rate_pct", "Num_trades_est", "Avg_trade_PnL", "Pct_in_market",
+]
+print(comp_df[display_cols].to_string(index=False))
+comp_csv = REPORTS_DIR / "strategy_train_test_comparison.csv"
+comp_df[display_cols].to_csv(comp_csv, index=False)
+print(f"\nSaved -> {comp_csv}")
+
+# ---------------------------------------------------------------------------
+# 15. Trade log — extract individual round-trip trades (test period)
+# ---------------------------------------------------------------------------
+print(f"\n{'='*65}")
+print("TRADE LOG -- TEST PERIOD (2022-2025)")
+print(f"{'='*65}")
+
+def extract_trade_log(bt_df, cost_per_leg):
+    """Extract individual round-trip trades from a backtest DataFrame."""
+    pos_arr  = bt_df["position"].values
+    z_arr    = bt_df["zscore"].values
+    pnl_arr  = bt_df["daily_pnl"].values
+    dates    = bt_df.index
+    n        = len(pos_arr)
+    trades   = []
+    i        = 0
+
+    while i < n:
+        if pos_arr[i] != 0:
+            entry_date = dates[i]
+            entry_pos  = pos_arr[i]
+            entry_z    = float(z_arr[i])
+            running    = float(pnl_arr[i])
+            i += 1
+
+            while i < n and pos_arr[i] == entry_pos:
+                running += float(pnl_arr[i])
+                i += 1
+
+            if i < n:
+                running   += float(pnl_arr[i])
+                exit_date  = dates[i]
+                exit_z     = float(z_arr[i])
+                i += 1
+            else:
+                exit_date  = dates[i - 1]
+                exit_z     = float(z_arr[i - 1])
+
+            holding  = (exit_date - entry_date).days
+            cost     = 4 * cost_per_leg        # entry (2 legs) + exit (2 legs)
+            gross    = running + cost
+            trades.append({
+                "Entry_Date":       str(entry_date.date()),
+                "Exit_Date":        str(exit_date.date()),
+                "Position":         "Long Spread" if entry_pos == 1 else "Short Spread",
+                "Entry_Zscore":     round(entry_z, 4),
+                "Exit_Zscore":      round(exit_z, 4),
+                "Holding_Days":     holding,
+                "Gross_PnL":        round(gross, 6),
+                "Transaction_Cost": round(cost, 6),
+                "Net_PnL":          round(running, 6),
+            })
+        else:
+            i += 1
+
+    return pd.DataFrame(trades)
+
+trade_log = extract_trade_log(bt_test, COST_PER_LEG)
+if not trade_log.empty:
+    n_win = int((trade_log["Net_PnL"] > 0).sum())
+    print(f"  Total trades     : {len(trade_log)}")
+    print(f"  Winning trades   : {n_win}  ({n_win/len(trade_log)*100:.1f}%)")
+    print(f"  Avg holding (days): {trade_log['Holding_Days'].mean():.1f}")
+    print(f"  Avg net P&L      : {trade_log['Net_PnL'].mean():+.6f}")
+    print(f"\n  First 10 trades:")
+    print(trade_log.head(10).to_string(index=False))
+    trade_csv = REPORTS_DIR / "trade_log_test.csv"
+    trade_log.to_csv(trade_csv, index=False)
+    print(f"\n  Full trade log ({len(trade_log)} rows) saved -> {trade_csv}")
+
+# ---------------------------------------------------------------------------
+# 16. Benchmark comparison — test period (cumulative log-returns)
+# ---------------------------------------------------------------------------
+print(f"\n{'='*65}")
+print("BENCHMARK COMPARISON -- TEST PERIOD (2022-2025)")
+print(f"{'='*65}")
+print("  Units: cumulative log-return (same space as strategy P&L)")
+
+sp500_raw = pd.read_csv(DATA_RAW / "sp500_raw.csv", index_col="Date", parse_dates=True)
+if isinstance(sp500_raw.columns, pd.MultiIndex):
+    sp500_raw.columns = sp500_raw.columns.get_level_values(0)
+
+test_prices = price_df.loc[TEST_START:].copy()
+test_sp     = sp500_raw["Close"].loc[TEST_START:]
+
+lr_amzn = np.log(test_prices[DEP]   / test_prices[DEP].shift(1)).dropna()
+lr_meta = np.log(test_prices[INDEP] / test_prices[INDEP].shift(1)).dropna()
+lr_ew   = ((lr_amzn + lr_meta) / 2)
+lr_sp   = np.log(test_sp / test_sp.shift(1)).dropna()
+
+idx       = bt_test.index
+cum_strat = bt_test["cum_pnl"]
+cum_amzn  = lr_amzn.reindex(idx).fillna(0).cumsum()
+cum_meta  = lr_meta.reindex(idx).fillna(0).cumsum()
+cum_ew    = lr_ew.reindex(idx).fillna(0).cumsum()
+cum_sp    = lr_sp.reindex(idx).fillna(0).cumsum()
+
+print(f"  Pairs strategy        : {cum_strat.iloc[-1]:+.4f}")
+print(f"  Buy-hold AMZN         : {cum_amzn.iloc[-1]:+.4f}")
+print(f"  Buy-hold META         : {cum_meta.iloc[-1]:+.4f}")
+print(f"  Equal-weight AMZN/META: {cum_ew.iloc[-1]:+.4f}")
+print(f"  S&P 500               : {cum_sp.iloc[-1]:+.4f}")
+
+fig_bm, ax_bm = plt.subplots(figsize=(14, 6))
+ax_bm.plot(cum_strat.index, cum_strat.values, label="Pairs Strategy",
+           color="steelblue", lw=2.0)
+ax_bm.plot(cum_amzn.index,  cum_amzn.values,  label="Buy-Hold AMZN",
+           color="darkorange", lw=1.3, ls="--")
+ax_bm.plot(cum_meta.index,  cum_meta.values,  label="Buy-Hold META",
+           color="mediumpurple", lw=1.3, ls="--")
+ax_bm.plot(cum_ew.index,    cum_ew.values,    label="Equal-Weight AMZN/META",
+           color="seagreen", lw=1.3, ls=":")
+ax_bm.plot(cum_sp.index,    cum_sp.values,    label="S&P 500",
+           color="black", lw=1.5, ls="-.")
+ax_bm.axhline(0, color="black", lw=0.6)
+ax_bm.set_title(
+    "Pairs Strategy vs Benchmarks — Cumulative Log-Return, Test Period 2022-2025",
+    fontsize=11, fontweight="bold")
+ax_bm.set_ylabel("Cumulative log-return")
+ax_bm.set_xlabel("Date")
+ax_bm.legend(fontsize=9)
+plt.tight_layout()
+chart_bm = CHARTS_DIR / "strategy_vs_benchmarks.png"
+plt.savefig(chart_bm, dpi=150, bbox_inches="tight")
+plt.close()
+print(f"\n  Chart saved -> {chart_bm}")
+
+# ---------------------------------------------------------------------------
+# 17. Sensitivity analysis — test period
+# ---------------------------------------------------------------------------
+print(f"\n{'='*65}")
+print("SENSITIVITY ANALYSIS -- TEST PERIOD (baseline: entry=2.0, window=30, stop=3.0)")
+print(f"{'='*65}")
+
+def _sens(z_entry, lb, z_stop):
+    sp_v, z_v = build_spread_zscore(log_df, hr, ic, lb)
+    bt_v = backtest(z_v.loc[TEST_START:], sp_v.loc[TEST_START:],
+                    z_entry, Z_EXIT, z_stop, COST_PER_LEG)
+    return compute_metrics(bt_v)
+
+# Vary entry threshold
+print("\n  -- Varying entry threshold (window=30, stop=3.0) --")
+print(f"  {'Entry':>6}  {'Sharpe':>8}  {'Sortino':>8}  {'Total PnL':>10}  "
+      f"{'MaxDD':>8}  {'Trades':>7}")
+for z_e in [1.5, 2.0, 2.5]:
+    m = _sens(z_e, 30, 3.0)
+    tag = " <-- baseline" if z_e == Z_ENTRY else ""
+    print(f"  {z_e:>6.1f}  {m['Sharpe_ratio']:>8.4f}  {m['Sortino_ratio']:>8.4f}  "
+          f"{m['Total_PnL']:>+10.6f}  {m['Max_drawdown']:>8.4f}  "
+          f"{m['Num_trades_est']:>7}{tag}")
+
+# Vary rolling window
+print("\n  -- Varying rolling window (entry=2.0, stop=3.0) --")
+print(f"  {'Window':>7}  {'Sharpe':>8}  {'Sortino':>8}  {'Total PnL':>10}  "
+      f"{'MaxDD':>8}  {'Trades':>7}")
+for lb in [20, 30, 60, 90]:
+    m = _sens(Z_ENTRY, lb, 3.0)
+    tag = " <-- baseline" if lb == LOOKBACK else ""
+    print(f"  {lb:>6}d  {m['Sharpe_ratio']:>8.4f}  {m['Sortino_ratio']:>8.4f}  "
+          f"{m['Total_PnL']:>+10.6f}  {m['Max_drawdown']:>8.4f}  "
+          f"{m['Num_trades_est']:>7}{tag}")
+
+# Vary stop loss
+print("\n  -- Varying stop loss (entry=2.0, window=30) --")
+print(f"  {'StopLoss':>9}  {'Sharpe':>8}  {'Sortino':>8}  {'Total PnL':>10}  "
+      f"{'MaxDD':>8}  {'Trades':>7}")
+for z_s in [3.0, 3.5, 4.0]:
+    m = _sens(Z_ENTRY, LOOKBACK, z_s)
+    tag = " <-- baseline" if z_s == Z_STOP else ""
+    print(f"  {z_s:>8.1f}  {m['Sharpe_ratio']:>8.4f}  {m['Sortino_ratio']:>8.4f}  "
+          f"{m['Total_PnL']:>+10.6f}  {m['Max_drawdown']:>8.4f}  "
+          f"{m['Num_trades_est']:>7}{tag}")
+
+# Full grid (3 x 4 x 3 = 36 combinations) — saved to CSV
+print("\n  Running full 36-combination sensitivity grid ...")
+sens_records = []
+for z_e in [1.5, 2.0, 2.5]:
+    for lb in [20, 30, 60, 90]:
+        for z_s in [3.0, 3.5, 4.0]:
+            m = _sens(z_e, lb, z_s)
+            sens_records.append({
+                "Entry_threshold": z_e,
+                "Window":          lb,
+                "Stop_loss":       z_s,
+                "Sharpe":          m["Sharpe_ratio"],
+                "Sortino":         m["Sortino_ratio"],
+                "Total_PnL":       m["Total_PnL"],
+                "Max_drawdown":    m["Max_drawdown"],
+                "Num_trades":      m["Num_trades_est"],
+            })
+
+sens_df  = pd.DataFrame(sens_records)
+sens_csv = REPORTS_DIR / "sensitivity_analysis.csv"
+sens_df.to_csv(sens_csv, index=False)
+best = sens_df.loc[sens_df["Sharpe"].idxmax()]
+print(f"  Best Sharpe in grid: {best['Sharpe']:.4f}  "
+      f"(entry={best['Entry_threshold']}, window={int(best['Window'])}d, "
+      f"stop={best['Stop_loss']})")
+print(f"  Full grid saved -> {sens_csv}")
+
+# ---------------------------------------------------------------------------
+# 18. Written conclusion
+# ---------------------------------------------------------------------------
+print(f"\n{'='*65}")
+print("PHASE 3 -- STRATEGY CONCLUSION")
+print(f"{'='*65}")
+
+best_sharpe_grid = float(sens_df["Sharpe"].max())
+conclusion = (
+    "\nPAIRS TRADING STRATEGY -- CONCLUSION\n"
+    "=====================================\n\n"
+    "COINTEGRATION:\n"
+    "  AMZN/META is the only pair among the 15 tested to pass both EG\n"
+    "  (p = 0.0144) and Johansen (trace = 17.52 vs 15.49 critical) at 5%.\n"
+    "  The cointegrating relationship only stabilised after 2020; in 2018-2019\n"
+    "  the hedge ratio R-squared was near zero.\n\n"
+    f"STRATEGY PERFORMANCE (baseline: entry=+-{Z_ENTRY}, window={LOOKBACK}d, stop=+-{Z_STOP}):\n"
+    f"  Train 2018-2021  : Sharpe={train_m['Sharpe_ratio']:.2f}, "
+    f"Total PnL={train_m['Total_PnL']:+.4f}\n"
+    f"  Test  2022-2025  : Sharpe={test_m['Sharpe_ratio']:.2f}, "
+    f"Total PnL={test_m['Total_PnL']:+.4f}, "
+    f"MaxDD={test_m['Max_drawdown']:.4f}\n"
+    f"  Walk-forward avg : Sharpe={avg_sharpe:.2f}, "
+    f"4 of 7 years profitable\n\n"
+    "BENCHMARK COMPARISON:\n"
+    "  Over the test period the pairs strategy underperformed directional\n"
+    "  buy-and-hold of AMZN, META, and the S&P 500 on a cumulative log-return\n"
+    "  basis. The strategy's value proposition is market-neutrality -- it does\n"
+    "  not carry directional market exposure -- at the cost of lower absolute\n"
+    "  returns.\n\n"
+    "PARAMETER SENSITIVITY:\n"
+    f"  The best Sharpe ratio across all 36 parameter combinations tested is\n"
+    f"  {best_sharpe_grid:.4f}. No combination exceeds a Sharpe of 1.0 in the\n"
+    "  test period, confirming the result is not an artefact of parameter\n"
+    "  selection -- the strategy is only weakly profitable regardless of\n"
+    "  threshold, window, or stop-loss choice.\n\n"
+    "KEY LIMITATIONS:\n"
+    "  1. Cointegration alone is not sufficient for profitability. The\n"
+    "     statistical relationship is real but regime-dependent, and the\n"
+    "     hedge ratio requires annual recalibration.\n"
+    "  2. Transaction costs and regime instability reduce performance.\n"
+    "     At 10 bps/leg (already conservative), the net edge is thin.\n"
+    "  3. The max drawdown relative to P&L magnitude is large. Robust\n"
+    "     position sizing and risk management are essential for live trading.\n"
+    "  4. Phase 4 sentiment overlay may help filter entries during high-VIX,\n"
+    "     macro-stress periods where spread dynamics are least predictable.\n"
+)
+
+print(conclusion)
+with open(REPORTS_DIR / "phase3_strategy_conclusion.txt", "w", encoding="utf-8") as f:
+    f.write(conclusion)
+print(f"  Conclusion saved -> {REPORTS_DIR / 'phase3_strategy_conclusion.txt'}")

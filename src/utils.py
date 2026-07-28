@@ -20,7 +20,7 @@ for _dir in (DATA_RAW, DATA_PROCESSED, CHARTS_DIR, REPORTS_DIR):
 # Date range
 # ---------------------------------------------------------------------------
 START_DATE = "2018-01-01"
-END_DATE   = "2025-12-31"
+END_DATE   = "2026-01-01"  # yfinance end is exclusive; use 2026-01-01 to include 2025-12-31
 
 # ---------------------------------------------------------------------------
 # Ticker universe  — 6 large-cap S&P 500 tech stocks

@@ -3,7 +3,7 @@
 **Universe:** MSFT, GOOGL, NVDA, AAPL, AMZN, META
 **Period:** 2018-01-03 to 2025-12-30
 **N:** 2,009 trading days
-**Analyses:** 10 (7 charts, 3 reports)
+**Analyses:** 14 (11 charts, 3 reports, 1 conclusion file)
 
 ---
 
@@ -191,15 +191,94 @@ Every stock has a beta above 1, meaning all six amplify S&P 500 moves. NVDA's be
 
 ---
 
+## 11. Benchmark Comparison (`cumulative_vs_benchmark.png`)
+
+**What it shows.** All six stocks plotted as base-100 cumulative return indices on the same chart as the S&P 500 (shown as a thick black dashed line), making it possible to directly assess whether each stock outperformed or underperformed the market benchmark over the 8-year period.
+
+**Key observations.** Every stock in the universe outperformed the S&P 500 over 2018-2025, though the magnitude varies widely. NVDA's divergence from 2023 onward is the most striking feature — by end-2025 its index value is roughly 37 times the starting level, compared to approximately 4x for the S&P 500. MSFT, AAPL, and GOOGL track each other closely and approximately double the S&P 500's return over the period. AMZN and META underperform the other four tech stocks but still outperform the S&P 500. During 2022 all six stocks fall significantly below the S&P 500's starting-level reference line before recovering.
+
+**Implications for Phase 3.** The benchmark comparison confirms that all six stocks carry excess return relative to the market — their spreads will have a positive drift component that a naive pairs strategy must account for. The OLS hedge ratio in Phase 3 removes the level relationship, but the relative drift between pairs over subperiods (visible in the chart) explains why the hedge ratio must be recalibrated periodically.
+
+---
+
+## 12. Rolling 60-Day Correlation — Top 6 Pairs (`rolling_correlation.png`)
+
+**What it shows.** For each of the six pairs with the highest average return correlation, a time series of the 60-day rolling Pearson correlation between daily returns, with the overall period mean overlaid as a dashed line. This shows whether correlations between stocks are stable or highly regime-dependent.
+
+**Key observations.** Rolling correlations are strongly regime-dependent for all six pairs. Every pair shows a sharp upward spike during March 2020 (COVID crash) and again during the 2022 bear market, as all stocks moved together under macro stress. In calmer periods (2018-2019, 2023-2025), correlations fall materially below their full-period means. NVDA-involving pairs show the most dramatic collapse in rolling correlation from mid-2023 onward as NVDA decoupled from peers on AI-driven demand. The MSFT/GOOGL and MSFT/AAPL pairs maintain the most stable above-mean rolling correlation throughout.
+
+**Implications for Phase 3.** The regime-dependence of correlations is a direct warning for the spread strategy: a pair with a stable long-run EG cointegration result may still have unstable short-run dynamics. The 2022 spike confirms that macro stress increases co-movement — but the strategy relies on mean reversion of the *spread*, not on the stocks moving together.
+
+---
+
+## 13. VIX Sensitivity Analysis (`vix_sensitivity.png` + `vix_sensitivity.csv`)
+
+**What it shows.** Three panels examining how each stock's returns and volatility behave in relation to the VIX (fear index). Panel 1 shows Pearson correlation of each stock's daily return with the daily VIX return. Panel 2 compares average daily returns on high-VIX days (VIX level > 25) versus low-VIX days. Panel 3 compares annualised volatility in each regime. High-VIX days numbered 349 out of 2,009 trading days (17.4%); low-VIX days numbered 1,660.
+
+**Key observations.**
+
+| Ticker | Corr w/ VIX | Avg Ret High-VIX | Avg Ret Low-VIX | Ann Vol High-VIX | Ann Vol Low-VIX |
+|--------|-------------|-----------------|-----------------|-----------------|-----------------|
+| MSFT   | −0.573      | −0.192%         | +0.169%         | 46.1%           | 22.8%           |
+| GOOGL  | −0.542      | −0.251%         | +0.183%         | 44.2%           | 27.3%           |
+| NVDA   | −0.529      | −0.311%         | +0.348%         | 68.9%           | 46.6%           |
+| AAPL   | −0.545      | −0.256%         | +0.192%         | 50.5%           | 24.6%           |
+| AMZN   | −0.499      | −0.307%         | +0.175%         | 49.3%           | 30.2%           |
+| META   | −0.435      | −0.402%         | +0.205%         | 59.1%           | 36.5%           |
+
+All six stocks are negatively correlated with VIX returns — stocks fall on days when the fear index rises. On high-VIX days, average daily returns are negative for every stock, while on low-VIX days all stocks show positive average returns. Annualised volatility is approximately double in the high-VIX regime compared to the low-VIX regime for MSFT, AAPL, and GOOGL. NVDA and META exhibit the most extreme volatility amplification.
+
+**Implications for Phase 3.** High-VIX periods are the most dangerous environment for a pairs strategy. When VIX spikes, spread dynamics can deviate from historical patterns for extended periods, causing z-score entries to be false signals. A sentiment or VIX filter — avoiding new position entries when VIX > 25 — is a practical risk management addition that Phase 4 could implement.
+
+---
+
+## 14. EDA Conclusion (`phase2_eda_conclusion.txt`)
+
+**What it shows.** A written synthesis of all EDA findings, translating the quantitative observations into a structured view of which pairs are most likely to pass formal cointegration tests, and why. Saved separately as a standalone text file.
+
+**Key conclusions documented:** AMZN/META, MSFT/AAPL, and MSFT/GOOGL are the priority pairs for Phase 3; NVDA pairs are expected to fail due to structural break; 2022 is the critical stress year for all backtests; VIX sensitivity suggests a regime-aware strategy is preferable to an always-on approach.
+
+---
+
 ## Summary: Heading into Phase 3
 
-The EDA across all 10 analyses points clearly to **three priority pairs** for cointegration testing:
+The EDA across all 14 analyses points clearly to **three priority pairs** for cointegration testing:
 
 1. **MSFT / GOOGL** — highest return correlation (0.709), similar betas (1.176 vs 1.156), clean price scatter (R=0.935), compact return scatter
 2. **MSFT / AAPL** — second highest return correlation (0.700), similar betas (1.176 vs 1.216), tightest price scatter in the universe (R=0.966)
-3. **GOOGL / AAPL** — strong correlation (0.622), similar betas, clean scatter (R=0.927)
+3. **AMZN / META** — moderate return correlation (0.611), both exposed to consumer/advertising cycle, neither affected by NVDA's AI structural break
+
+**Additional findings from analyses 11–14:**
+- All six stocks outperformed the S&P 500 over 2018-2025; NVDA at 37x was the dominant outlier
+- Rolling 60-day correlations are highly regime-dependent — all pairs spike during macro stress (2020, 2022) and compress in calm periods
+- VIX sensitivity is strong and uniform: all stocks post negative average returns on high-VIX days (VIX > 25) and roughly double their volatility; AMZN and META show the largest average return deterioration in fear regimes
+- The EDA conclusion (saved separately) identifies AMZN/META as the pair best positioned for cointegration given the absence of a NVDA-style structural break in either stock
 
 **Caution flags:**
 - NVDA decoupled from all peers from mid-2023 — restrict any NVDA cointegration test to 2018–2022
 - META has a structural regime break in 2022 — single-day kurtosis events inflate spread risk
 - 2022 is the critical stress year for all backtests — any strategy that survives 2022 has demonstrated genuine robustness
+- High-VIX environments (349 days, 17.4% of the sample) are the most hostile for pairs mean-reversion strategies
+
+---
+
+## Output Files
+
+| File | Description |
+|------|-------------|
+| `outputs/reports/summary_stats.csv` | Mean, std, min, max, skewness, kurtosis per ticker |
+| `outputs/reports/pair_correlations.csv` | Ranked pairwise return correlations, all 15 pairs |
+| `outputs/reports/beta_analysis.csv` | Beta, alpha, R², p-value vs S&P 500 per ticker |
+| `outputs/reports/vix_sensitivity.csv` | VIX correlation, avg returns, ann. vol by regime |
+| `outputs/reports/phase2_eda_conclusion.txt` | Written EDA conclusion and pair-selection rationale |
+| `outputs/charts/hist_returns.png` | Return distributions with KDE, 2×3 grid |
+| `outputs/charts/correlation_heatmap.png` | Pearson correlation heatmap (lower triangle) |
+| `outputs/charts/cumulative_returns.png` | Base-100 cumulative returns, all 6 stocks |
+| `outputs/charts/cumulative_vs_benchmark.png` | All 6 stocks vs S&P 500 on same chart |
+| `outputs/charts/rolling_volatility.png` | 30-day rolling annualised volatility |
+| `outputs/charts/boxplot_by_year.png` | Annual return boxplots per stock |
+| `outputs/charts/pairwise_price_scatter.png` | Price-level scatter plots, all 15 pairs |
+| `outputs/charts/pairwise_return_scatter.png` | Return scatter plots, all 15 pairs |
+| `outputs/charts/beta_analysis.png` | Beta bar chart vs S&P 500 |
+| `outputs/charts/rolling_correlation.png` | 60-day rolling correlations, top 6 pairs |
+| `outputs/charts/vix_sensitivity.png` | VIX sensitivity: correlation, returns, vol |

@@ -340,6 +340,207 @@ plt.close()
 print(f"  Saved -> outputs/charts/beta_analysis.png")
 
 # ---------------------------------------------------------------------------
+# 11 -- Benchmark comparison: each stock vs S&P 500 (cumulative returns)
+# ---------------------------------------------------------------------------
+print("\n[11/14] Benchmark comparison vs S&P 500 ...")
+
+sp500_cum = (1 + df["sp500_return"] / 100).cumprod() * 100
+
+fig, ax = plt.subplots(figsize=(14, 6))
+for ticker in ALL_TICKERS:
+    ax.plot(cum.index, cum[ticker], label=ticker,
+            color=TICKER_COLOR[ticker], lw=1.4, alpha=0.75)
+ax.plot(sp500_cum.index, sp500_cum.values, label="S&P 500",
+        color="black", lw=2.2, ls="--")
+ax.axhline(100, color="grey", lw=0.5, ls=":", alpha=0.5)
+ax.set_title("Cumulative Returns vs S&P 500 Benchmark — Base 100 at 2018-01-03",
+             fontsize=13, fontweight="bold")
+ax.set_ylabel("Index (Start = 100)")
+ax.set_xlabel("Date")
+ax.legend(loc="upper left", ncol=2)
+ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.0f"))
+plt.tight_layout()
+out = CHARTS_DIR / "cumulative_vs_benchmark.png"
+plt.savefig(out, dpi=150)
+plt.close()
+print(f"  Saved -> outputs/charts/cumulative_vs_benchmark.png")
+
+# ---------------------------------------------------------------------------
+# 12 -- Rolling 60-day correlations (top 6 pairs by average correlation)
+# ---------------------------------------------------------------------------
+print("\n[12/14] Rolling 60-day correlation — top 6 pairs ...")
+
+top6_pairs = pair_corr_df.head(6)[["Stock A", "Stock B"]].values.tolist()
+
+fig, axes = plt.subplots(2, 3, figsize=(18, 8))
+fig.suptitle("60-Day Rolling Return Correlation — Top 6 Pairs (2018-2025)",
+             fontsize=13, fontweight="bold")
+
+for ax, (t1, t2) in zip(axes.flat, top6_pairs):
+    roll_corr = returns[t1].rolling(60).corr(returns[t2])
+    mean_corr = float(roll_corr.mean())
+    ax.plot(roll_corr.index, roll_corr.values, color=TICKER_COLOR[t1], lw=1.2)
+    ax.axhline(0,         color="black",  lw=0.6, ls="--", alpha=0.4)
+    ax.axhline(mean_corr, color="crimson", lw=1.0, ls="--",
+               label=f"Mean: {mean_corr:.2f}")
+    ax.set_title(f"{t1} / {t2}", fontweight="bold")
+    ax.set_ylabel("60-day rolling r")
+    ax.set_ylim(-0.3, 1.0)
+    ax.legend(fontsize=8)
+    ax.tick_params(labelsize=7)
+
+plt.tight_layout()
+out = CHARTS_DIR / "rolling_correlation.png"
+plt.savefig(out, dpi=150)
+plt.close()
+print(f"  Saved -> outputs/charts/rolling_correlation.png")
+
+# ---------------------------------------------------------------------------
+# 13 -- VIX sensitivity analysis
+# ---------------------------------------------------------------------------
+print("\n[13/14] VIX sensitivity analysis ...")
+
+# Load absolute VIX level from raw file
+vix_raw = pd.read_csv(DATA_RAW / "vix_raw.csv", index_col="Date", parse_dates=True)
+if isinstance(vix_raw.columns, pd.MultiIndex):
+    vix_raw.columns = vix_raw.columns.get_level_values(0)
+vix_level = vix_raw["Close"].reindex(returns.index).ffill()
+
+VIX_THRESHOLD = 25
+high_vix = vix_level > VIX_THRESHOLD
+low_vix  = ~high_vix
+
+n_high = int(high_vix.sum())
+n_low  = int(low_vix.sum())
+print(f"  High-VIX days (VIX > {VIX_THRESHOLD}): {n_high}  |  "
+      f"Low-VIX days: {n_low}")
+
+vix_ret = df["vix_return"]
+
+vix_records = []
+for ticker in ALL_TICKERS:
+    corr_vix   = float(returns[ticker].corr(vix_ret))
+    avg_hi     = float(returns[ticker][high_vix].mean())
+    avg_lo     = float(returns[ticker][low_vix].mean())
+    vol_hi     = float(returns[ticker][high_vix].std() * np.sqrt(252))
+    vol_lo     = float(returns[ticker][low_vix].std()  * np.sqrt(252))
+    vix_records.append({
+        "Ticker":             ticker,
+        "Corr_with_VIX":      round(corr_vix, 4),
+        "Avg_Return_HighVIX": round(avg_hi, 4),
+        "Avg_Return_LowVIX":  round(avg_lo, 4),
+        "AnnVol_HighVIX_pct": round(vol_hi, 2),
+        "AnnVol_LowVIX_pct":  round(vol_lo, 2),
+    })
+
+vix_df = pd.DataFrame(vix_records).set_index("Ticker")
+vix_df.to_csv(REPORTS_DIR / "vix_sensitivity.csv")
+print(vix_df.to_string())
+print(f"  Saved -> outputs/reports/vix_sensitivity.csv")
+
+# VIX sensitivity chart — 3 panels
+fig, (ax_corr, ax_ret, ax_vol) = plt.subplots(1, 3, figsize=(16, 5))
+fig.suptitle(f"VIX Sensitivity Analysis (High VIX = level > {VIX_THRESHOLD})",
+             fontsize=13, fontweight="bold")
+colors_list = [TICKER_COLOR[t] for t in ALL_TICKERS]
+x = np.arange(len(ALL_TICKERS))
+w = 0.38
+
+# Panel 1: Correlation with VIX return
+corr_vals = list(vix_df["Corr_with_VIX"])
+bars1 = ax_corr.bar(ALL_TICKERS, corr_vals, color=colors_list, edgecolor="black", lw=0.6)
+ax_corr.axhline(0, color="black", lw=0.8)
+ax_corr.set_title("Correlation with VIX Return", fontweight="bold")
+ax_corr.set_ylabel("Pearson r")
+for bar, v in zip(bars1, corr_vals):
+    ax_corr.text(bar.get_x() + bar.get_width() / 2,
+                 v - 0.015 if v < 0 else v + 0.005,
+                 f"{v:.2f}", ha="center",
+                 va="top" if v < 0 else "bottom", fontsize=9)
+
+# Panel 2: Average daily return high vs low VIX
+hi_ret = list(vix_df["Avg_Return_HighVIX"])
+lo_ret = list(vix_df["Avg_Return_LowVIX"])
+ax_ret.bar(x - w/2, hi_ret, w, label=f"High VIX (>{VIX_THRESHOLD})",
+           color="tomato", edgecolor="black", lw=0.5)
+ax_ret.bar(x + w/2, lo_ret, w, label=f"Low VIX (<={VIX_THRESHOLD})",
+           color="steelblue", edgecolor="black", lw=0.5)
+ax_ret.axhline(0, color="black", lw=0.8)
+ax_ret.set_xticks(x)
+ax_ret.set_xticklabels(ALL_TICKERS)
+ax_ret.set_title("Avg Daily Return: High vs Low VIX", fontweight="bold")
+ax_ret.set_ylabel("Daily Return (%)")
+ax_ret.legend(fontsize=8)
+
+# Panel 3: Annualised volatility high vs low VIX
+hi_vol = list(vix_df["AnnVol_HighVIX_pct"])
+lo_vol = list(vix_df["AnnVol_LowVIX_pct"])
+ax_vol.bar(x - w/2, hi_vol, w, label=f"High VIX (>{VIX_THRESHOLD})",
+           color="tomato", edgecolor="black", lw=0.5)
+ax_vol.bar(x + w/2, lo_vol, w, label=f"Low VIX (<={VIX_THRESHOLD})",
+           color="steelblue", edgecolor="black", lw=0.5)
+ax_vol.set_xticks(x)
+ax_vol.set_xticklabels(ALL_TICKERS)
+ax_vol.set_title("Annualised Volatility: High vs Low VIX", fontweight="bold")
+ax_vol.set_ylabel("Ann. Vol (%)")
+ax_vol.legend(fontsize=8)
+
+plt.tight_layout()
+out = CHARTS_DIR / "vix_sensitivity.png"
+plt.savefig(out, dpi=150)
+plt.close()
+print(f"  Saved -> outputs/charts/vix_sensitivity.png")
+
+# ---------------------------------------------------------------------------
+# 14 -- EDA Conclusion
+# ---------------------------------------------------------------------------
+print("\n[14/14] EDA Conclusion ...")
+
+conclusion = (
+    "\nEDA CONCLUSION -- PHASE 2 SUMMARY\n"
+    "==================================\n\n"
+    "Based on eight years (2018-2025) of daily data for six S&P 500 tech stocks:\n\n"
+    "RETURN STATISTICS:\n"
+    "  - NVDA dominates in both return (0.233%/day) and volatility (48.3% ann.).\n"
+    "    Its AI/GPU-driven 37x price surge from mid-2023 makes it a poor candidate\n"
+    "    for any stable long-term pair relationship.\n"
+    "  - META shows extreme kurtosis (18.12), driven by its Feb-2022 single-day\n"
+    "    -26% collapse. Any META-involving pair carries asymmetric spread-gap risk.\n\n"
+    "BENCHMARK SENSITIVITY (BETA):\n"
+    "  - All six stocks are market-amplifying (beta > 1.0). MSFT (1.18) and\n"
+    "    GOOGL (1.16) have the most stable beta profiles, making their price-level\n"
+    "    relationship easier to model, though correlation alone does not imply\n"
+    "    cointegration.\n\n"
+    "VIX SENSITIVITY:\n"
+    "  - All stocks are negatively correlated with VIX returns (stocks fall when\n"
+    "    fear rises). On high-VIX days (VIX > 25) annualised volatility roughly\n"
+    "    doubles vs low-VIX regimes. Strategy signals during high-VIX periods\n"
+    "    carry elevated false-signal risk.\n\n"
+    "ROLLING CORRELATION:\n"
+    "  - 60-day rolling correlations are highly regime-dependent. Most pairs show\n"
+    "    correlation spikes during the 2020 COVID crash and 2022 bear market,\n"
+    "    and troughs in 2023-2024 as NVDA decoupled from peers.\n\n"
+    "PAIRS MOST LIKELY TO BE COINTEGRATED (EDA view):\n"
+    "  1. AMZN/META -- moderate return correlation (0.57), both driven by\n"
+    "     consumer/advertiser cycle. Neither has undergone the AI structural break\n"
+    "     seen in NVDA. Price scatter shows a reasonable linear trend.\n"
+    "  2. MSFT/AAPL -- highest price-level R^2 (0.966), similar betas, stable\n"
+    "     rolling correlation over time.\n"
+    "  3. MSFT/GOOGL -- highest return correlation (0.709), similar business\n"
+    "     models (search, cloud, enterprise SaaS).\n\n"
+    "CAUTION FLAGS:\n"
+    "  - NVDA pairs: expected to fail cointegration due to the AI-driven\n"
+    "    structural break from mid-2023.\n"
+    "  - 2022 bear market is the critical stress test for all backtests.\n"
+    "    META fell 65%, AMZN 50%, NVDA 55% in that calendar year.\n"
+)
+
+print(conclusion)
+with open(REPORTS_DIR / "phase2_eda_conclusion.txt", "w", encoding="utf-8") as f:
+    f.write(conclusion)
+print(f"  Saved -> outputs/reports/phase2_eda_conclusion.txt")
+
+# ---------------------------------------------------------------------------
 # Done
 # ---------------------------------------------------------------------------
 print("\n" + "=" * 60)

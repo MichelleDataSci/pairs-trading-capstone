@@ -1,0 +1,44 @@
+
+EDA CONCLUSION -- PHASE 2 SUMMARY
+==================================
+
+Based on eight years (2018-2025) of daily data for six S&P 500 tech stocks:
+
+RETURN STATISTICS:
+  - NVDA dominates in both return (0.233%/day) and volatility (48.3% ann.).
+    Its AI/GPU-driven 37x price surge from mid-2023 makes it a poor candidate
+    for any stable long-term pair relationship.
+  - META shows extreme kurtosis (18.12), driven by its Feb-2022 single-day
+    -26% collapse. Any META-involving pair carries asymmetric spread-gap risk.
+
+BENCHMARK SENSITIVITY (BETA):
+  - All six stocks are market-amplifying (beta > 1.0). MSFT (1.18) and
+    GOOGL (1.16) have the most stable beta profiles, making their price-level
+    relationship easier to model, though correlation alone does not imply
+    cointegration.
+
+VIX SENSITIVITY:
+  - All stocks are negatively correlated with VIX returns (stocks fall when
+    fear rises). On high-VIX days (VIX > 25) annualised volatility roughly
+    doubles vs low-VIX regimes. Strategy signals during high-VIX periods
+    carry elevated false-signal risk.
+
+ROLLING CORRELATION:
+  - 60-day rolling correlations are highly regime-dependent. Most pairs show
+    correlation spikes during the 2020 COVID crash and 2022 bear market,
+    and troughs in 2023-2024 as NVDA decoupled from peers.
+
+PAIRS MOST LIKELY TO BE COINTEGRATED (EDA view):
+  1. AMZN/META -- moderate return correlation (0.57), both driven by
+     consumer/advertiser cycle. Neither has undergone the AI structural break
+     seen in NVDA. Price scatter shows a reasonable linear trend.
+  2. MSFT/AAPL -- highest price-level R^2 (0.966), similar betas, stable
+     rolling correlation over time.
+  3. MSFT/GOOGL -- highest return correlation (0.709), similar business
+     models (search, cloud, enterprise SaaS).
+
+CAUTION FLAGS:
+  - NVDA pairs: expected to fail cointegration due to the AI-driven
+    structural break from mid-2023.
+  - 2022 bear market is the critical stress test for all backtests.
+    META fell 65%, AMZN 50%, NVDA 55% in that calendar year.

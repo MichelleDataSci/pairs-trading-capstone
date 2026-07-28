@@ -99,18 +99,29 @@ print(f"[Step 5 complete] Benchmark series downloaded.\n")
 # ---------------------------------------------------------------------------
 # Steps 6, 7, 8 — Add Year, Quarter, Month indicator columns
 # ---------------------------------------------------------------------------
-print("Steps 6/7/8 — Adding Year, Quarter, Month indicator columns ...")
+print("Steps 6/7/8 — Building master dataset (OHLC + Volume + returns + benchmarks) ...")
 
-# Use the stock returns index as the master date spine
-master = returns_df.join(benchmark_df, how="outer")
+# Interleave OHLC + Volume + Daily_Return per ticker in spec order:
+#   {ticker}_Open, {ticker}_High, {ticker}_Low, {ticker}_Close,
+#   {ticker}_Volume, {ticker}_return
+price_parts = []
+for ticker in ALL_TICKERS:
+    for col in ["Open", "High", "Low", "Close", "Volume"]:
+        price_parts.append(raw_frames[ticker][col].rename(f"{ticker}_{col}"))
+    price_parts.append(returns[ticker])   # already named {ticker}_return
+ohlcv_returns_df = pd.concat(price_parts, axis=1)
+ohlcv_returns_df.index = pd.to_datetime(ohlcv_returns_df.index)
+ohlcv_returns_df.index.name = "Date"
+
+master = ohlcv_returns_df.join(benchmark_df, how="outer")
 master.index = pd.to_datetime(master.index)
 master["Year"]    = master.index.year
 master["Quarter"] = master.index.quarter
 master["Month"]   = master.index.month
 
-print(f"  Columns added: Year, Quarter, Month")
+print(f"  Columns: OHLC + Volume + Return per ticker, S&P500/VIX returns, Year/Quarter/Month")
 print(f"  Master shape : {master.shape}")
-print(f"[Steps 6/7/8 complete] Year, Quarter, Month indicators added.\n")
+print(f"[Steps 6/7/8 complete] Master dataset built with full OHLC, Volume, and returns.\n")
 
 # ---------------------------------------------------------------------------
 # Steps 9 & 10 — Merge all series and finalise master CSV
