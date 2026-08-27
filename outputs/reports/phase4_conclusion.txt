@@ -1,0 +1,36 @@
+
+PHASE 4 -- TESTING MEAN REVERSION ON UNSEEN DATA
+=================================================
+
+METHODOLOGY:
+  Pair              : AMZN / META
+  OLS fitted on     : 2018-01-01 to 2025-12-31 (2011 trading days)
+  Hedge ratio (beta): 0.597664
+  Intercept (alpha) : 1.532298
+  R-squared         : 0.786600
+  Norm window (mu/sigma): 2025-01-01 to 2025-12-31 (250 days)
+  Fixed mu          : -0.035929
+  Fixed sigma       : 0.060724
+
+TEST PERIOD RESULTS (Jan-Jul 2026):
+  Trading days : 145
+  Z-score mean : 2.0026  (0.0 = perfect mean reversion anchor)
+  Z-score std  : 1.5844   (1.0 = variance unchanged from training)
+  Z-score min  : -1.1506
+  Z-score max  : 5.4250
+
+TRADING SIGNALS:
+  Long  entries (Z < -2.0) : 0
+  Short entries (Z >  2.0) : 2
+  Total signals                  : 2
+  Days in market                 : 99 (68.3%)
+
+MEAN REVERSION ASSESSMENT:
+  WEAK evidence of mean reversion. The Z-score mean (2.003) has drifted significantly from zero, suggesting the spread has shifted from its historical equilibrium in the 2026 test period.
+
+IMPORTANT NOTE:
+  The Z-score in Phase 4 uses a fixed mu and sigma anchored to 2025.
+  This is stricter than Phase 3b (which used a rolling 30-day window).
+  A fixed anchor is more conservative -- any drift in the spread level
+  or variance in 2026 will show up as Z-score deviation, even if the
+  pair remains broadly cointegrated.

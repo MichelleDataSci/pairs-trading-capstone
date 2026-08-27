@@ -2,6 +2,9 @@
 .claude/
 PROGRESS.md
 
+# Capstone report — kept local, not pushed to GitHub
+brief_updated_aftereachphase/
+
 # Python cache
 __pycache__/
 *.pyc
