@@ -22,7 +22,7 @@ BENCHMARK COMPARISON:
 
 PARAMETER SENSITIVITY:
   The best Sharpe ratio across all 36 parameter combinations tested is
-  0.2592. No combination exceeds a Sharpe of 1.0 in the
+  0.2572. No combination exceeds a Sharpe of 1.0 in the
   test period, confirming the result is not an artefact of parameter
   selection -- the strategy is only weakly profitable regardless of
   threshold, window, or stop-loss choice.
@@ -35,5 +35,5 @@ KEY LIMITATIONS:
      At 10 bps/leg (already conservative), the net edge is thin.
   3. The max drawdown relative to P&L magnitude is large. Robust
      position sizing and risk management are essential for live trading.
-  4. Phase 4 sentiment overlay may help filter entries during high-VIX,
-     macro-stress periods where spread dynamics are least predictable.
+  4. Phase 4 tests whether the AMZN/META cointegrating relationship holds
+     on genuinely unseen 2026 data using a fixed Z-score anchor from 2025.

@@ -488,7 +488,7 @@ print(f"  {chart1}")
 print(f"  {chart2}")
 print(f"  {chart3}")
 print(f"  {chart4}")
-print(f"\nNext step: Phase 4 -- Sentiment analysis overlay.")
+print(f"\nNext step: Phase 4 -- Testing mean reversion on unseen 2026 data.")
 
 # ---------------------------------------------------------------------------
 # 13. Run backtest on TRAIN period; compute full-period metrics
@@ -765,8 +765,8 @@ conclusion = (
     "     At 10 bps/leg (already conservative), the net edge is thin.\n"
     "  3. The max drawdown relative to P&L magnitude is large. Robust\n"
     "     position sizing and risk management are essential for live trading.\n"
-    "  4. Phase 4 sentiment overlay may help filter entries during high-VIX,\n"
-    "     macro-stress periods where spread dynamics are least predictable.\n"
+    "  4. Phase 4 tests whether the AMZN/META cointegrating relationship holds\n"
+    "     on genuinely unseen 2026 data using a fixed Z-score anchor from 2025.\n"
 )
 
 print(conclusion)
