@@ -16,7 +16,7 @@ TEST PERIOD RESULTS (Jan-Jul 2026):
   Trading days : 145
   Z-score mean : 2.0026  (0.0 = perfect mean reversion anchor)
   Z-score std  : 1.5844   (1.0 = variance unchanged from training)
-  Z-score min  : -1.1506
+  Z-score min  : -1.1505
   Z-score max  : 5.4250
 
 TRADING SIGNALS:
