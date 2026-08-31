@@ -19,6 +19,18 @@ STRATEGY PERFORMANCE (baseline: entry=±2.0, window=30d, stop=±3.0, cost=10bps)
   rather than genuine edge. Without bootstrap confidence intervals it cannot
   be distinguished from zero at conventional significance levels.
 
+  The walk-forward average of 0.18 deserves the same caveat. Each annual
+  window generates only 4-8 trades (see strategy_results.csv), which is
+  far too few to produce a reliable Sharpe estimate -- the standard error
+  of a Sharpe ratio is approximately sqrt((1 + 0.5*SR^2) / n), so at n=6
+  trades the uncertainty dwarfs the estimate itself. The figure should not
+  be read as evidence of consistent edge. Additionally, the two highest-
+  contributing years (2020: Sharpe=0.62, 2021: Sharpe=0.68) coincide with
+  the COVID-era volatility spike, suggesting regime dependency rather than
+  a repeatable structural relationship. The three consecutive negative years
+  that follow (2022-2024) are consistent with the pair's cointegrating
+  relationship breaking down in the post-COVID period.
+
 COST SENSITIVITY (test period, baseline parameters):
   Cost (bps)   Sharpe    Total PnL
        5bps    -0.0513    -0.0664
@@ -58,5 +70,7 @@ KEY LIMITATIONS:
      AMZN/META relationship did not hold on genuinely unseen data.
   4. Single pair, single sector. All conclusions rest on one relationship
      in one industry. Generalisation cannot be assessed from this study alone.
-  5. Training Sharpe (0.21) is not statistically significant without
-     confidence intervals and should not be cited as evidence of edge.
+  5. All reported Sharpe ratios (train=0.21, walk-forward avg=0.18,
+     individual years=0.04 to 0.68) lack bootstrap confidence intervals
+     and trade counts too small to be reliable. None should be cited as
+     evidence of edge without those intervals applied consistently.
