@@ -97,6 +97,10 @@ for label, symbol in BENCHMARK_TICKERS.items():
     close_b = df_b["Close"]
     ret_b = (close_b - close_b.shift(1)) / close_b.shift(1) * 100
     benchmark_series[f"{label}_return"] = ret_b.rename(f"{label}_return")
+    # VIX level (raw index value) is needed by Phase 2's sensitivity analysis
+    # and is part of the brief's Phase 1 item 5.  S&P 500 level is not required.
+    if label == "vix":
+        benchmark_series["vix_level"] = close_b.rename("vix_level")
     print(f"{len(df_b)} rows saved -> {raw_path.name}")
 
 benchmark_df = pd.concat(benchmark_series.values(), axis=1)
