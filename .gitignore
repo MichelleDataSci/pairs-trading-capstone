@@ -6,3 +6,9 @@ __pycache__/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Private methodology notes — not part of submission
+notes/
+
+# Local progress tracking
+PROGRESS.md

@@ -42,8 +42,12 @@ for ticker in ALL_TICKERS:
     print(f"  Downloading {ticker} ...", end=" ")
     df = yf.download(ticker, start=START_DATE, end=END_DATE, auto_adjust=True, progress=False)
     if df.empty:
-        print("WARNING: no data returned — skipping.")
-        continue
+        raise RuntimeError(
+            f"yfinance returned no data for {ticker} "
+            f"({START_DATE} to {END_DATE}). "
+            "Check the ticker symbol, your internet connection, and whether "
+            "the market was open during the requested period."
+        )
     # Flatten MultiIndex columns if present (yfinance ≥ 0.2.x)
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
@@ -80,8 +84,11 @@ for label, symbol in BENCHMARK_TICKERS.items():
     print(f"  Downloading {symbol} ({label}) ...", end=" ")
     df_b = yf.download(symbol, start=START_DATE, end=END_DATE, auto_adjust=True, progress=False)
     if df_b.empty:
-        print("WARNING: no data returned — skipping.")
-        continue
+        raise RuntimeError(
+            f"yfinance returned no data for benchmark {symbol} ({label}) "
+            f"({START_DATE} to {END_DATE}). "
+            "Check the ticker symbol and your internet connection."
+        )
     if isinstance(df_b.columns, pd.MultiIndex):
         df_b.columns = df_b.columns.get_level_values(0)
     df_b.index.name = "Date"
