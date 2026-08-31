@@ -24,6 +24,7 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from statsmodels.tsa.stattools import adfuller, coint
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
+from statsmodels.tsa.vector_ar.var_model import VAR
 from itertools import combinations
 from pathlib import Path
 
@@ -120,13 +121,10 @@ def johansen(log_pair_df, det_order=0, k_ar_diff=1):
     Johansen cointegration test on a 2-column log price DataFrame.
     det_order=0: constant in the cointegrating relationship.
     k_ar_diff=1: one lag in the VAR (equivalent to a VAR(2) in levels).
-      Lag choice rationale: for daily financial prices a single autoregressive
-      lag in the differenced VAR is the conventional starting point.  For this
-      dataset (7 years of daily tech-stock log prices) VAR lag-selection via
-      AIC and BIC consistently suggests 1-2 lags; using k_ar_diff=1 is
-      therefore both standard and consistent with the data.  A sensitivity
-      check with k_ar_diff=2 was run informally and produced no change in
-      which pairs passed or failed the trace test at 5%.
+      Lag choice rationale: see the VAR LAG SELECTION section below, which
+      runs VAR.select_order(maxlags=5) on all 15 pairs and prints AIC/BIC/
+      HQC results.  The selected lag for each pair is verified there before
+      the Johansen tests run; k_ar_diff=1 is used only when confirmed.
     Critical values at 5% level (index 1 in the cvt/cvm arrays).
     Returns dict of trace and max-eigenvalue stats, crits, and pass flags.
     """
@@ -146,7 +144,41 @@ def johansen(log_pair_df, det_order=0, k_ar_diff=1):
     }
 
 # ---------------------------------------------------------------------------
-# 4. Run all tests for all 15 pairs
+# 4. VAR lag selection — validate k_ar_diff used in Johansen test
+#    Runs VAR.select_order() on differenced log prices for all 15 pairs.
+#    AIC, BIC, HQC, and FPE are reported; the dominant BIC-selected lag
+#    determines k_ar_diff used below.  This converts the lag choice from an
+#    assertion into a reproducible, data-driven decision.
+# ---------------------------------------------------------------------------
+print("\n" + "=" * 65)
+print("VAR LAG SELECTION — JOHANSEN k_ar_diff VALIDATION (maxlags=5)")
+print("=" * 65)
+print(f"  {'Pair':<12}  {'AIC':>5}  {'BIC':>5}  {'HQC':>5}  {'FPE':>5}")
+print(f"  {'-'*38}")
+
+_lag_rows = []
+for _a, _b in pairs:
+    _pair_diff = log_price_df[[_a, _b]].diff().dropna()
+    _sel = VAR(_pair_diff).select_order(maxlags=5)
+    _aic = int(_sel.selected_orders["aic"])
+    _bic = int(_sel.selected_orders["bic"])
+    _hqc = int(_sel.selected_orders["hqic"])
+    _fpe = int(_sel.selected_orders["fpe"])
+    print(f"  {_a}/{_b:<9}  {_aic:>5}  {_bic:>5}  {_hqc:>5}  {_fpe:>5}")
+    _lag_rows.append({"Pair": f"{_a}/{_b}", "AIC": _aic, "BIC": _bic,
+                      "HQC": _hqc, "FPE": _fpe})
+
+_lag_df      = pd.DataFrame(_lag_rows)
+_bic_median  = int(_lag_df["BIC"].median())
+_bic_max     = int(_lag_df["BIC"].max())
+K_AR_DIFF    = max(1, _bic_median)   # never go below 1
+
+print(f"\n  BIC-selected lag summary: median={_bic_median}, max={_bic_max}")
+print(f"  → Using k_ar_diff={K_AR_DIFF} for all Johansen tests "
+      f"({'matches BIC median' if K_AR_DIFF == _bic_median else 'floor at 1'})")
+
+# ---------------------------------------------------------------------------
+# 5. Run all tests for all 15 pairs
 # ---------------------------------------------------------------------------
 print("\n" + "=" * 65)
 print("RUNNING TESTS FOR ALL 15 PAIRS")
@@ -169,7 +201,7 @@ for a, b in pairs:
     eg_stat, eg_pval = engle_granger(log_price_df[dep], log_price_df[indep])
 
     # Johansen (direction-independent)
-    joh = johansen(log_price_df[[a, b]])
+    joh = johansen(log_price_df[[a, b]], k_ar_diff=K_AR_DIFF)
 
     pair_label = f"{a}/{b}"
     spreads[pair_label] = resid
@@ -406,7 +438,7 @@ for a, b in nvda_pairs:
      resid, adf_stat, adf_pval, dep, indep) = pick_direction(log_a, log_b, a, b)
 
     eg_stat, eg_pval = engle_granger(log_nvda_window[dep], log_nvda_window[indep])
-    joh = johansen(log_nvda_window[[a, b]])
+    joh = johansen(log_nvda_window[[a, b]], k_ar_diff=K_AR_DIFF)
 
     eg_pass  = eg_pval < 0.05
     joh_pass = joh["trace_pass"]

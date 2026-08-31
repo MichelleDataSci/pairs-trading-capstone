@@ -240,7 +240,58 @@ def compute_metrics(bt_df, label=""):
         "Pct_in_market":    round(pct_in_mkt, 2),
     }
 
+# ---------------------------------------------------------------------------
+# 6a. Block bootstrap confidence intervals for Sharpe ratios
+#     Resamples blocks of daily_pnl (block_size ≈ 1 trading month = 20 days)
+#     to preserve short-term autocorrelation in returns.  2 000 resamples
+#     give stable 95% CIs.  Applied to both train and test periods.
+# ---------------------------------------------------------------------------
+def block_bootstrap_sharpe(daily_pnl_series, n_boot=2000, block_size=20, seed=42):
+    """
+    Block bootstrap 95% CI on annualised Sharpe ratio.
+
+    Args:
+        daily_pnl_series : pd.Series of daily P&L values (NaNs dropped).
+        n_boot           : number of bootstrap resamples (default 2 000).
+        block_size       : length of each contiguous block in trading days
+                           (default 20 ≈ one calendar month).
+        seed             : RNG seed for reproducibility.
+
+    Returns:
+        (ci_lo, ci_hi) : tuple of floats — the 2.5th and 97.5th percentiles
+                         of the bootstrap Sharpe distribution.
+    """
+    rng = np.random.default_rng(seed)
+    pnl = daily_pnl_series.dropna().values
+    n   = len(pnl)
+
+    n_blocks     = n // block_size
+    pnl_trimmed  = pnl[:n_blocks * block_size].reshape(n_blocks, block_size)
+
+    boot_sharpes = []
+    for _ in range(n_boot):
+        idx       = rng.integers(0, n_blocks, size=n_blocks)
+        boot_pnl  = pnl_trimmed[idx].ravel()
+        ann_vol   = boot_pnl.std() * np.sqrt(252)
+        if ann_vol > 0:
+            boot_sharpes.append((boot_pnl.mean() * 252) / ann_vol)
+
+    return (round(float(np.percentile(boot_sharpes, 2.5)),  4),
+            round(float(np.percentile(boot_sharpes, 97.5)), 4))
+
+# Train-period backtest (hedge ratio estimated on training data, same as main run)
+bt_train = backtest(
+    zscore_full.loc[:TRAIN_END],
+    spread_full.loc[:TRAIN_END],
+    Z_ENTRY, Z_EXIT, Z_STOP, COST_PER_LEG
+)
+train_m = compute_metrics(bt_train, label="Train 2018-2021")
+
 test_m = compute_metrics(bt_test, label="Test 2022-2025")
+
+# Bootstrap CIs
+train_ci = block_bootstrap_sharpe(bt_train["daily_pnl"])
+test_ci  = block_bootstrap_sharpe(bt_test["daily_pnl"])
 
 print(f"\n{'='*65}")
 print("OUT-OF-SAMPLE TEST PERIOD PERFORMANCE (2022-2025)")
@@ -252,6 +303,30 @@ metric_order = [
 ]
 for k in metric_order:
     print(f"  {k:<22}: {test_m[k]}")
+
+print(f"\n{'='*65}")
+print("SHARPE RATIO SIGNIFICANCE (block bootstrap, 2 000 resamples, block=20d)")
+print(f"{'='*65}")
+print(f"  {'Period':<20}  {'Sharpe':>8}  {'95% CI lower':>13}  {'95% CI upper':>13}  {'Sig. ≠ 0?':>10}")
+print(f"  {'-'*70}")
+for label, sharpe, ci in [
+    ("Train 2018-2021", train_m["Sharpe_ratio"], train_ci),
+    ("Test  2022-2025", test_m["Sharpe_ratio"],  test_ci),
+]:
+    sig = "YES" if (ci[0] > 0 or ci[1] < 0) else "no"
+    print(f"  {label:<20}  {sharpe:>8.4f}  {ci[0]:>13.4f}  {ci[1]:>13.4f}  {sig:>10}")
+print(f"\n  Interpretation: a CI that straddles zero means the Sharpe is")
+print(f"  not statistically distinguishable from zero at the 5% level.")
+
+# Save train/test comparison with bootstrap CIs
+comparison_rows = [
+    {**train_m, "Sharpe_CI_lo": train_ci[0], "Sharpe_CI_hi": train_ci[1]},
+    {**test_m,  "Sharpe_CI_lo": test_ci[0],  "Sharpe_CI_hi": test_ci[1]},
+]
+comparison_df = pd.DataFrame(comparison_rows)
+cmp_csv = REPORTS_DIR / "strategy_train_test_comparison.csv"
+comparison_df.to_csv(cmp_csv, index=False)
+print(f"\n  Train/test comparison saved -> {cmp_csv}")
 
 # ---------------------------------------------------------------------------
 # 8. Walk-forward validation — re-estimate hedge ratio at start of each year
@@ -478,6 +553,56 @@ print(f"  Best year  : {wf_df.loc[wf_df['Total_PnL'].idxmax(), 'Period']} "
       f"(PnL={wf_df['Total_PnL'].max():+.6f})")
 print(f"  Worst year : {wf_df.loc[wf_df['Total_PnL'].idxmin(), 'Period']} "
       f"(PnL={wf_df['Total_PnL'].min():+.6f})")
+
+# ---------------------------------------------------------------------------
+# 13. Transaction-cost sensitivity sweep
+#     The base assumption of 10 bps per leg is described in the report as
+#     "conservative".  This section tests that claim by rerunning the
+#     test-period backtest at 5 / 10 / 20 / 30 bps and reporting how
+#     performance degrades as costs rise.
+# ---------------------------------------------------------------------------
+print(f"\n{'='*65}")
+print("TRANSACTION-COST SENSITIVITY (test period, base params)")
+print(f"{'='*65}")
+print(f"  Other params fixed: entry={Z_ENTRY}, window={LOOKBACK}d, stop={Z_STOP}")
+print(f"\n  {'Cost (bps)':>10}  {'Sharpe':>8}  {'Total PnL':>10}  "
+      f"{'MaxDD':>8}  {'# Trades':>9}  {'Trades viable?':>15}")
+print(f"  {'-'*65}")
+
+COST_SWEEP_BPS = [5, 10, 20, 30]
+cost_sweep_records = []
+for bps in COST_SWEEP_BPS:
+    cost = bps / 10_000
+    bt_c = backtest(
+        zscore_full.loc[TEST_START:],
+        spread_full.loc[TEST_START:],
+        Z_ENTRY, Z_EXIT, Z_STOP, cost
+    )
+    m_c = compute_metrics(bt_c, label=f"{bps}bps")
+    viable = "YES" if m_c["Sharpe_ratio"] > 0 else "no"
+    print(f"  {bps:>10}  {m_c['Sharpe_ratio']:>8.4f}  "
+          f"{m_c['Total_PnL']:>+10.6f}  {m_c['Max_drawdown']:>8.4f}  "
+          f"{m_c['Num_trades_est']:>9}  {viable:>15}")
+    cost_sweep_records.append({
+        "Cost_bps": bps, "Cost_per_leg": cost,
+        "Sharpe": m_c["Sharpe_ratio"], "Total_PnL": m_c["Total_PnL"],
+        "Max_drawdown": m_c["Max_drawdown"], "Num_trades": m_c["Num_trades_est"],
+    })
+
+cost_sweep_df  = pd.DataFrame(cost_sweep_records)
+cost_sweep_csv = REPORTS_DIR / "cost_sensitivity.csv"
+cost_sweep_df.to_csv(cost_sweep_csv, index=False)
+print(f"\n  Cost sensitivity saved -> {cost_sweep_csv}")
+
+# Summarise the breakeven cost
+positive_cost_rows = cost_sweep_df[cost_sweep_df["Sharpe"] > 0]
+if positive_cost_rows.empty:
+    print(f"  NOTE: Strategy produces negative Sharpe at ALL cost levels tested.")
+    print(f"  The '10bps is conservative' claim is not substantiated — the edge")
+    print(f"  disappears before costs even enter the picture.")
+else:
+    max_viable = positive_cost_rows["Cost_bps"].max()
+    print(f"  Strategy remains Sharpe-positive up to {max_viable} bps per leg.")
 
 print(f"\n{'='*65}")
 print("PHASE 3B -- PAIRS TRADING STRATEGY COMPLETE")
