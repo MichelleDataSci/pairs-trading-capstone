@@ -5,35 +5,58 @@ PAIRS TRADING STRATEGY -- CONCLUSION
 COINTEGRATION:
   AMZN/META is the only pair among the 15 tested to pass both EG
   (p = 0.0144) and Johansen (trace = 17.52 vs 15.49 critical) at 5%.
-  The cointegrating relationship only stabilised after 2020; in 2018-2019
-  the hedge ratio R-squared was near zero.
+  However, this should be treated cautiously: with 15 pairs tested at a
+  flat 5% threshold, ~0.75 false positives are expected by chance. AMZN/META
+  does not survive Bonferroni correction (α = 0.05/15 = 0.0033), meaning the
+  cointegration finding itself may be a statistical false positive.
 
-STRATEGY PERFORMANCE (baseline: entry=+-2.0, window=30d, stop=+-3.0):
+STRATEGY PERFORMANCE (baseline: entry=±2.0, window=30d, stop=±3.0, cost=10bps):
   Train 2018-2021  : Sharpe=0.21, Total PnL=+0.1816
   Test  2022-2025  : Sharpe=-0.12, Total PnL=-0.1544, MaxDD=-0.6531
   Walk-forward avg : Sharpe=0.18, 4 of 7 years profitable
 
+  The positive training Sharpe (0.21) likely reflects in-sample fitting
+  rather than genuine edge. Without bootstrap confidence intervals it cannot
+  be distinguished from zero at conventional significance levels.
+
+COST SENSITIVITY (test period, baseline parameters):
+  Cost (bps)   Sharpe    Total PnL
+       5bps    -0.0513    -0.0664
+      10bps    -0.1191    -0.1544
+      20bps    -0.2538    -0.3304
+      30bps    -0.3869    -0.5064
+
+  The strategy produces negative Sharpe at every cost level tested,
+  including 5 bps -- half the base assumption. This means the underperformance
+  is not driven by transaction costs: the spread itself does not mean-revert
+  reliably enough to generate profit in the test period before costs are even
+  applied. The prior framing of "10 bps is already conservative" is
+  misleading -- cost level is irrelevant when there is no gross edge.
+
+PARAMETER SENSITIVITY (36 combinations, test period):
+  35 of 36 combinations produce negative Sharpe in the test period.
+  The 3 positive-Sharpe combinations (Sharpe: 0.20, 0.24, 0.26) all use
+  entry=2.5, window=90d, and generate only 6 trades over 4 years. Six trades
+  is not a sufficient sample to draw any inference about strategy profitability;
+  these results are statistical noise, not evidence of edge.
+
+  Honest summary: no parameter combination tested produces a reliably
+  positive Sharpe in the out-of-sample period with an adequate trade count.
+
 BENCHMARK COMPARISON:
   Over the test period the pairs strategy underperformed directional
-  buy-and-hold of AMZN, META, and the S&P 500 on a cumulative log-return
-  basis. The strategy's value proposition is market-neutrality -- it does
-  not carry directional market exposure -- at the cost of lower absolute
-  returns.
-
-PARAMETER SENSITIVITY:
-  The best Sharpe ratio across all 36 parameter combinations tested is
-  0.2572. No combination exceeds a Sharpe of 1.0 in the
-  test period, confirming the result is not an artefact of parameter
-  selection -- the strategy is only weakly profitable regardless of
-  threshold, window, or stop-loss choice.
+  buy-and-hold of AMZN, META, and the S&P 500. The strategy's theoretical
+  value proposition is market-neutrality; in practice it delivered neither
+  market-neutral returns nor capital preservation.
 
 KEY LIMITATIONS:
-  1. Cointegration alone is not sufficient for profitability. The
-     statistical relationship is real but regime-dependent, and the
-     hedge ratio requires annual recalibration.
-  2. Transaction costs and regime instability reduce performance.
-     At 10 bps/leg (already conservative), the net edge is thin.
-  3. The max drawdown relative to P&L magnitude is large. Robust
-     position sizing and risk management are essential for live trading.
-  4. Phase 4 tests whether the AMZN/META cointegrating relationship holds
-     on genuinely unseen 2026 data using a fixed Z-score anchor from 2025.
+  1. Cointegration finding is statistically fragile. It does not survive
+     Bonferroni correction for multiple comparisons across 15 pairs.
+  2. No gross edge in the test period. The strategy loses money before
+     transaction costs, so cost management cannot rescue it.
+  3. Regime instability. Phase 4 (2026 out-of-sample) confirms the
+     AMZN/META relationship did not hold on genuinely unseen data.
+  4. Single pair, single sector. All conclusions rest on one relationship
+     in one industry. Generalisation cannot be assessed from this study alone.
+  5. Training Sharpe (0.21) is not statistically significant without
+     confidence intervals and should not be cited as evidence of edge.
