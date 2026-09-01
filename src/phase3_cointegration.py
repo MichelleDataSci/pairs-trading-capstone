@@ -209,6 +209,16 @@ for a, b in pairs:
     eg_pass  = eg_pval < 0.05
     joh_pass = joh["trace_pass"]
 
+    # Track which test(s) each pair satisfies (Vinayak criterion)
+    if eg_pass and joh_pass:
+        tests_passed = "Both"
+    elif eg_pass:
+        tests_passed = "EG only"
+    elif joh_pass:
+        tests_passed = "Johansen only"
+    else:
+        tests_passed = "Neither"
+
     records.append({
         "Pair":                     pair_label,
         "OLS_direction":            chosen_dir,
@@ -228,6 +238,8 @@ for a, b in pairs:
         "Johansen_trace_pass_5pct": joh_pass,
         "Johansen_maxeig_pass_5pct":joh["maxeig_pass"],
         "Both_methods_agree":       eg_pass and joh_pass,
+        "Tests_passed":             tests_passed,
+        "Selected":                 eg_pass or joh_pass,
     })
 
     eg_flag  = "PASS" if eg_pass  else "FAIL"
@@ -273,15 +285,15 @@ for _, row in results_df.iterrows():
           f"{row['EG_pval']:>7.4f}  "
           f"{eg_tag:>6}  {joh_tag:>10}")
 
-shortlist = results_df[results_df["Both_methods_agree"]]
+shortlist = results_df[results_df["Selected"]]
 print(f"\n{'='*65}")
-print(f"SHORTLISTED PAIRS (both EG and Johansen pass at 5%):")
+print(f"SHORTLISTED PAIRS (at least one of EG or Johansen passes at 5%):")
 print(f"{'='*65}")
 if len(shortlist) == 0:
-    print("  No pairs pass both tests at 5% significance.")
+    print("  No pairs pass any cointegration test at 5% significance.")
 else:
     for _, row in shortlist.iterrows():
-        print(f"  Rank {row['Rank']}: {row['Pair']}  "
+        print(f"  Rank {row['Rank']}: {row['Pair']}  [{row['Tests_passed']}]  "
               f"OLS dir={row['OLS_direction']}  HR={row['Hedge_ratio']}  "
               f"EG p={row['EG_pval']:.4f}  "
               f"Johansen trace={row['Johansen_trace_stat_r0']} vs {row['Johansen_trace_crit_r0']}")
@@ -467,12 +479,33 @@ print(f"\n  Interpretation: Restricting to 2018-2022 removes the AI-driven struc
 print(f"  break in NVDA from mid-2023, but the cointegrating relationship with peer")
 print(f"  stocks was also not established in the earlier period.")
 
+# ---------------------------------------------------------------------------
+# 12. Export selected_pairs.csv — contract for downstream phases
+#     Criterion: at least one of EG or Johansen passes at 5% (Vinayak, Aug 2026)
+# ---------------------------------------------------------------------------
+selected_cols = [
+    "Pair", "OLS_direction", "Hedge_ratio", "Intercept",
+    "EG_pval", "EG_cointegrated_5pct",
+    "Johansen_trace_stat_r0", "Johansen_trace_crit_r0",
+    "Johansen_trace_pass_5pct", "Tests_passed",
+]
+selected_df  = results_df[results_df["Selected"]][selected_cols].copy()
+selected_csv = REPORTS_DIR / "selected_pairs.csv"
+selected_df.to_csv(selected_csv, index=False)
+print(f"\nSelected pairs ({len(selected_df)}) saved -> {selected_csv}")
+print(f"  Selection criterion: EG OR Johansen passes at 5% significance")
+for _, row in selected_df.iterrows():
+    print(f"    {row['Pair']:<12}  [{row['Tests_passed']}]  "
+          f"dir={row['OLS_direction']}  HR={row['Hedge_ratio']}")
+
 print(f"\n{'='*65}")
 print("PHASE 3 -- COINTEGRATION SCREENING COMPLETE")
 print(f"{'='*65}")
 print(f"\nOutputs:")
 print(f"  {out_csv}")
+print(f"  {selected_csv}")
 print(f"  {nvda_csv}")
 print(f"  {chart1}")
 print(f"  {chart2}")
-print(f"\nNext step: Phase 3b -- pairs trading strategy on shortlisted pairs.")
+print(f"\nSelection criterion: at least one of EG or Johansen passes at 5%.")
+print(f"Next step: Phase 3b -- pairs trading strategy on selected pairs.")
