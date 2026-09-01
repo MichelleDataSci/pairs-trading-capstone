@@ -548,52 +548,53 @@ def run_pair(dep, indep, tests_passed):
 # ---------------------------------------------------------------------------
 # Main — read selected pairs and run strategy for each
 # ---------------------------------------------------------------------------
-print("=" * 65)
-print("PHASE 3B -- PAIRS TRADING STRATEGY")
-print("=" * 65)
+if __name__ == "__main__":
+    print("=" * 65)
+    print("PHASE 3B -- PAIRS TRADING STRATEGY")
+    print("=" * 65)
 
-selected_csv = REPORTS_DIR / "selected_pairs.csv"
-if selected_csv.exists():
-    sel_df = pd.read_csv(selected_csv)
-    pair_list = [
-        (row["OLS_direction"].split("~")[0],
-         row["OLS_direction"].split("~")[1],
-         row["Tests_passed"])
-        for _, row in sel_df.iterrows()
-    ]
-    print(f"\nLoaded {len(pair_list)} pair(s) from {selected_csv.name}:")
-    for dep, indep, tp in pair_list:
-        print(f"  {dep}/{indep}  [{tp}]")
-else:
-    pair_list = [("AMZN", "META", "Both")]
-    print(f"\nWARNING: {selected_csv.name} not found — falling back to AMZN/META.")
-    print("Run phase3_cointegration.py first to generate selected_pairs.csv.")
+    selected_csv = REPORTS_DIR / "selected_pairs.csv"
+    if selected_csv.exists():
+        sel_df = pd.read_csv(selected_csv)
+        pair_list = [
+            (row["OLS_direction"].split("~")[0],
+             row["OLS_direction"].split("~")[1],
+             row["Tests_passed"])
+            for _, row in sel_df.iterrows()
+        ]
+        print(f"\nLoaded {len(pair_list)} pair(s) from {selected_csv.name}:")
+        for dep, indep, tp in pair_list:
+            print(f"  {dep}/{indep}  [{tp}]")
+    else:
+        pair_list = [("AMZN", "META", "Both")]
+        print(f"\nWARNING: {selected_csv.name} not found — falling back to AMZN/META.")
+        print("Run phase3_cointegration.py first to generate selected_pairs.csv.")
 
-print(f"\nStrategy parameters: entry=+-{Z_ENTRY}  exit={Z_EXIT}  "
-      f"stop=+-{Z_STOP}  window={LOOKBACK}d  cost={COST_PER_LEG*100:.1f}bps/leg")
+    print(f"\nStrategy parameters: entry=+-{Z_ENTRY}  exit={Z_EXIT}  "
+          f"stop=+-{Z_STOP}  window={LOOKBACK}d  cost={COST_PER_LEG*100:.1f}bps/leg")
 
-# Run all pairs
-summary_rows = []
-for dep, indep, tests_passed in pair_list:
-    try:
-        row = run_pair(dep, indep, tests_passed)
-        summary_rows.append(row)
-    except Exception as exc:
-        print(f"\n  ERROR running {dep}/{indep}: {exc}")
+    # Run all pairs
+    summary_rows = []
+    for dep, indep, tests_passed in pair_list:
+        try:
+            row = run_pair(dep, indep, tests_passed)
+            summary_rows.append(row)
+        except Exception as exc:
+            print(f"\n  ERROR running {dep}/{indep}: {exc}")
 
-# Cross-pair summary
-if summary_rows:
-    summary_df  = pd.DataFrame(summary_rows)
-    summary_csv = REPORTS_DIR / "strategy_cross_pair_summary.csv"
-    summary_df.to_csv(summary_csv, index=False)
+    # Cross-pair summary
+    if summary_rows:
+        summary_df  = pd.DataFrame(summary_rows)
+        summary_csv = REPORTS_DIR / "strategy_cross_pair_summary.csv"
+        summary_df.to_csv(summary_csv, index=False)
+
+        print(f"\n{'='*65}")
+        print("CROSS-PAIR SUMMARY")
+        print(f"{'='*65}")
+        print(summary_df.to_string(index=False))
+        print(f"\nCross-pair summary saved -> {summary_csv}")
 
     print(f"\n{'='*65}")
-    print("CROSS-PAIR SUMMARY")
+    print("PHASE 3B COMPLETE")
     print(f"{'='*65}")
-    print(summary_df.to_string(index=False))
-    print(f"\nCross-pair summary saved -> {summary_csv}")
-
-print(f"\n{'='*65}")
-print("PHASE 3B COMPLETE")
-print(f"{'='*65}")
-print(f"\nNext step: Phase 4 -- Testing mean reversion on unseen 2026 data.")
+    print(f"\nNext step: Phase 4 -- Testing mean reversion on unseen 2026 data.")

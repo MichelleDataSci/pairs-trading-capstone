@@ -17,7 +17,8 @@ import pytest
 # Make src/ importable without installing the package
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from phase3_strategy import backtest, compute_metrics, build_spread_zscore
+from phase3_strategy import (backtest, compute_metrics, build_spread_zscore,
+                              block_bootstrap_sharpe)
 
 
 # ---------------------------------------------------------------------------
@@ -286,15 +287,7 @@ class TestBuildSpreadZscore:
         log_df    = pd.DataFrame({"AMZN": log_dep, "META": log_indep})
 
         hr, ic, lookback = 1.0, 0.5, 5
-
-        # Monkeypatch the module-level DEP / INDEP names
-        import phase3_strategy as strat
-        _orig_dep, _orig_indep = strat.DEP, strat.INDEP
-        strat.DEP, strat.INDEP = "AMZN", "META"
-
-        spread, _ = build_spread_zscore(log_df, hr, ic, lookback)  # (log_prices, hedge_ratio, intercept, lookback)
-
-        strat.DEP, strat.INDEP = _orig_dep, _orig_indep
+        spread, _ = build_spread_zscore(log_df, "AMZN", "META", hr, ic, lookback)
 
         expected = log_dep - hr * log_indep - ic
         pd.testing.assert_series_equal(spread, expected, check_names=False)
@@ -306,13 +299,7 @@ class TestBuildSpreadZscore:
         log_ind = pd.Series(np.log(np.linspace(50,   60, 20)), index=idx, name="META")
         log_df  = pd.DataFrame({"AMZN": log_dep, "META": log_ind})
 
-        import phase3_strategy as strat
-        _orig_dep, _orig_indep = strat.DEP, strat.INDEP
-        strat.DEP, strat.INDEP = "AMZN", "META"
-
-        _, zscore = build_spread_zscore(log_df, 1.0, 0.0, 5)  # (log_prices, hedge_ratio, intercept, lookback)
-
-        strat.DEP, strat.INDEP = _orig_dep, _orig_indep
+        _, zscore = build_spread_zscore(log_df, "AMZN", "META", 1.0, 0.0, 5)
 
         assert zscore.iloc[:4].isna().all(), "First (lookback-1) z-scores must be NaN"
         assert not np.isnan(zscore.iloc[4]), "Z-score should be valid at index lookback-1"
