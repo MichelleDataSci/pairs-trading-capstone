@@ -1,0 +1,2 @@
+Pair,Tests_passed,HR,R2_train,Train_Sharpe,Train_CI_lo,Train_CI_hi,Test_Sharpe,Test_CI_lo,Test_CI_hi,Test_TotalPnL,Test_MaxDD,Test_WinRate,WF_AvgSharpe,WF_ProfitableYears,BestSens_Sharpe
+AMZN/META,Both,1.0405,0.8336,0.2124,-0.6239,1.065,-0.1191,-0.7409,0.5475,-0.154371,-0.653083,52.27,0.1762,4,0.2572
