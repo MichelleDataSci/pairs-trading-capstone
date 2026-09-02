@@ -209,7 +209,7 @@ for a, b in pairs:
     eg_pass  = eg_pval < 0.05
     joh_pass = joh["trace_pass"]
 
-    # Track which test(s) each pair satisfies (Vinayak criterion)
+    # Track which test(s) each pair satisfies
     if eg_pass and joh_pass:
         tests_passed = "Both"
     elif eg_pass:
@@ -481,7 +481,7 @@ print(f"  stocks was also not established in the earlier period.")
 
 # ---------------------------------------------------------------------------
 # 12. Export selected_pairs.csv — contract for downstream phases
-#     Criterion: at least one of EG or Johansen passes at 5% (Vinayak, Aug 2026)
+#     Criterion: at least one of EG or Johansen passes at 5% significance
 # ---------------------------------------------------------------------------
 selected_cols = [
     "Pair", "OLS_direction", "Hedge_ratio", "Intercept",
