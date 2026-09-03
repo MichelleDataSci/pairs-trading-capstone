@@ -1,8 +1,8 @@
 # Phase 2 EDA — Analytical Report
 
 **Universe:** MSFT, GOOGL, NVDA, AAPL, AMZN, META
-**Period:** 2018-01-03 to 2025-12-30
-**N:** 2,009 trading days
+**Period:** 2018-01-03 to 2025-12-31
+**N:** 2,010 trading days
 **Analyses:** 14 (11 charts, 3 reports, 1 conclusion file)
 
 ---
@@ -74,7 +74,7 @@ NVDA has roughly twice the daily standard deviation of MSFT, making it the noisi
 
 MSFT dominates the top of the ranking — it appears in 5 of the top 9 pairs. The correlation floor of ~0.53 across all 15 pairs means every combination has some systematic co-movement, so rejecting pairs on return correlation alone would be premature.
 
-**Implications for Phase 3.** This ranked table serves as the first filter for Phase 3. The top 6 pairs (correlation ≥ 0.62) will be prioritised for Engle-Granger and Johansen cointegration testing. Pairs involving NVDA will be tested over the restricted 2018–2022 window only.
+**Implications for Phase 3.** This ranked table serves as the first filter for Phase 3. The top 6 pairs (correlation ≥ 0.62) will be prioritised for Engle-Granger and Johansen cointegration testing. Pairs involving NVDA will be tested over the full 2018–2025 window and additionally over the restricted 2018–2022 sub-period to check whether NVDA's AI-driven structural break is the cause of any failure.
 
 ---
 
@@ -195,7 +195,7 @@ Every stock has a beta above 1, meaning all six amplify S&P 500 moves. NVDA's be
 
 **What it shows.** All six stocks plotted as base-100 cumulative return indices on the same chart as the S&P 500 (shown as a thick black dashed line), making it possible to directly assess whether each stock outperformed or underperformed the market benchmark over the 8-year period.
 
-**Key observations.** Every stock in the universe outperformed the S&P 500 over 2018-2025, though the magnitude varies widely. NVDA's divergence from 2023 onward is the most striking feature — by end-2025 its index value is roughly 37 times the starting level, compared to approximately 4x for the S&P 500. MSFT, AAPL, and GOOGL track each other closely and approximately double the S&P 500's return over the period. AMZN and META underperform the other four tech stocks but still outperform the S&P 500. During 2022 all six stocks fall significantly below the S&P 500's starting-level reference line before recovering.
+**Key observations.** Every stock in the universe outperformed the S&P 500 over 2018-2025, though the magnitude varies widely. NVDA's divergence from 2023 onward is the most striking feature — by end-2025 its index value is roughly 37 times the starting level, compared to approximately 4x for the S&P 500. MSFT, AAPL, and GOOGL track each other closely and approximately double the S&P 500's return over the period. AMZN and META underperform the other four tech stocks but still outperform the S&P 500. During 2022 META fell back below the base-100 starting level (reaching roughly index 25 at its trough); the remaining five stocks declined but stayed materially above their 2018 starting values throughout.
 
 **Implications for Phase 3.** The benchmark comparison confirms that all six stocks carry excess return relative to the market — their spreads will have a positive drift component that a naive pairs strategy must account for. The OLS hedge ratio in Phase 3 removes the level relationship, but the relative drift between pairs over subperiods (visible in the chart) explains why the hedge ratio must be recalibrated periodically.
 
@@ -213,7 +213,7 @@ Every stock has a beta above 1, meaning all six amplify S&P 500 moves. NVDA's be
 
 ## 13. VIX Sensitivity Analysis (`vix_sensitivity.png` + `vix_sensitivity.csv`)
 
-**What it shows.** Three panels examining how each stock's returns and volatility behave in relation to the VIX (fear index). Panel 1 shows Pearson correlation of each stock's daily return with the daily VIX return. Panel 2 compares average daily returns on high-VIX days (VIX level > 25) versus low-VIX days. Panel 3 compares annualised volatility in each regime. High-VIX days numbered 349 out of 2,009 trading days (17.4%); low-VIX days numbered 1,660.
+**What it shows.** Three panels examining how each stock's returns and volatility behave in relation to the VIX (fear index). Panel 1 shows Pearson correlation of each stock's daily return with the daily VIX return. Panel 2 compares average daily returns on high-VIX days (VIX level > 25) versus low-VIX days. Panel 3 compares annualised volatility in each regime. High-VIX days numbered 349 out of 2,010 trading days (17.4%); low-VIX days numbered 1,661.
 
 **Key observations.**
 
@@ -255,7 +255,7 @@ The EDA across all 14 analyses points clearly to **three priority pairs** for co
 - The EDA conclusion (saved separately) identifies AMZN/META as the pair best positioned for cointegration given the absence of a NVDA-style structural break in either stock
 
 **Caution flags:**
-- NVDA decoupled from all peers from mid-2023 — restrict any NVDA cointegration test to 2018–2022
+- NVDA decoupled from all peers from mid-2023 — test NVDA pairs over the full period and additionally over 2018–2022 to isolate the structural break's effect
 - META has a structural regime break in 2022 — single-day kurtosis events inflate spread risk
 - 2022 is the critical stress year for all backtests — any strategy that survives 2022 has demonstrated genuine robustness
 - High-VIX environments (349 days, 17.4% of the sample) are the most hostile for pairs mean-reversion strategies
