@@ -5,6 +5,22 @@ every selected pair: spread construction, z-score signals, backtesting,
 walk-forward validation, sensitivity analysis, and benchmark comparison.
 
 Falls back to AMZN/META if selected_pairs.csv has not yet been generated.
+
+Execution convention
+--------------------
+Signal is generated from close(t).  Trade executes at open(t+1).
+
+P&L is computed using open prices for the execution bar:
+  - Entry bar i  : pos * (spread_close[i] - spread_open[i])
+  - Exit  bar i  : prev_pos * (spread_open[i] - spread_close[i-1])
+  - Hold  bar i  : pos * (spread_close[i] - spread_close[i-1])
+  - Flip  bar i  : both components at open
+
+Stop-loss re-entry guard
+------------------------
+After a stop loss, re-entry in the same direction is blocked until the
+z-score returns inside the entry band (|z| < z_entry).  Re-entry in the
+opposite direction remains permitted.
 """
 
 import sys
@@ -35,17 +51,33 @@ TEST_START   = "2022-01-01"
 # Helper functions
 # ---------------------------------------------------------------------------
 
-def load_log_prices(dep, indep):
-    """Load close prices for two tickers and return log-price DataFrame."""
-    prices = {}
+def load_prices(dep, indep):
+    """
+    Load Close and Open prices for two tickers from raw CSVs.
+    Returns (close_df, open_df, log_close_df, log_open_df), all indexed on
+    the same trading dates.
+    """
+    close_px = {}
+    open_px  = {}
     for ticker in [dep, indep]:
         path = DATA_RAW / f"{ticker}_raw.csv"
-        df = pd.read_csv(path, index_col="Date", parse_dates=True)
+        df   = pd.read_csv(path, index_col="Date", parse_dates=True)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
-        prices[ticker] = df["Close"]
-    price_df = pd.DataFrame(prices).dropna()
-    return price_df, np.log(price_df)
+        close_px[ticker] = df["Close"]
+        open_px[ticker]  = df["Open"]
+    close_df = pd.DataFrame(close_px).dropna()
+    open_df  = pd.DataFrame(open_px).reindex(close_df.index).dropna()
+    common   = close_df.index.intersection(open_df.index)
+    close_df = close_df.loc[common]
+    open_df  = open_df.loc[common]
+    return close_df, open_df, np.log(close_df), np.log(open_df)
+
+
+def load_log_prices(dep, indep):
+    """Backward-compatible alias: returns (close_df, log_close_df)."""
+    close_df, _, log_close_df, _ = load_prices(dep, indep)
+    return close_df, log_close_df
 
 
 def estimate_hr(y_log, x_log):
@@ -56,7 +88,7 @@ def estimate_hr(y_log, x_log):
 
 
 def build_spread_zscore(log_prices, dep, indep, hedge_ratio, intercept, lookback):
-    """Compute spread and rolling z-score given OLS parameters."""
+    """Compute close-price spread and rolling z-score given OLS parameters."""
     spread    = log_prices[dep] - hedge_ratio * log_prices[indep] - intercept
     roll_mean = spread.rolling(lookback).mean()
     roll_std  = spread.rolling(lookback).std()
@@ -64,7 +96,17 @@ def build_spread_zscore(log_prices, dep, indep, hedge_ratio, intercept, lookback
     return spread, zscore
 
 
-def backtest(zscore_series, spread_series, z_entry, z_exit, z_stop, cost_per_leg):
+def build_open_spread(log_open, dep, indep, hedge_ratio, intercept):
+    """
+    Compute the spread using open prices.
+    Used as the execution price for entries and exits (signal at close,
+    execute at next-day open).
+    """
+    return log_open[dep] - hedge_ratio * log_open[indep] - intercept
+
+
+def backtest(zscore_series, spread_series, z_entry, z_exit, z_stop, cost_per_leg,
+             spread_open_series=None):
     """
     Simulate pairs trading on z-score signal.
 
@@ -77,47 +119,104 @@ def backtest(zscore_series, spread_series, z_entry, z_exit, z_stop, cost_per_leg
       Long  (pos=+1): close when z >= z_exit  OR  z <= -z_stop (stop loss)
       Short (pos=-1): close when z <= z_exit  OR  z >= +z_stop (stop loss)
 
-    All entry/exit decisions use z_prev (signal from previous day's close),
-    executed at the next open — no look-ahead bias.
-    """
-    z_arr  = zscore_series.values
-    sp_arr = spread_series.values
-    n      = len(z_arr)
+    Stop-loss re-entry guard:
+      After a stop loss, re-entry in the same direction is blocked until z
+      returns inside the entry band (|z| < z_entry).  This prevents the
+      strategy from immediately re-entering the same adverse trade on the
+      stop bar.  Re-entry in the opposite direction is still permitted.
 
-    position   = np.zeros(n)
-    daily_pnl  = np.zeros(n)
-    trade_cost = np.zeros(n)
-    pos = 0
+    All entry/exit decisions use z_prev (signal from previous day's close),
+    executed at the next bar.
+
+    P&L calculation:
+      If spread_open_series is provided (real market data):
+        - Entry bar i  : pos * (spread_close[i] - spread_open[i])
+        - Exit  bar i  : prev_pos * (spread_open[i] - spread_close[i-1])
+        - Hold  bar i  : pos * (spread_close[i] - spread_close[i-1])
+        - Flip  bar i  : exit-at-open + entry-at-open
+      If spread_open_series is None (unit tests with synthetic data):
+        - All bars: pos * (spread_close[i] - spread_close[i-1])
+    """
+    z_arr   = zscore_series.values
+    sp_cl   = spread_series.values
+    sp_op   = spread_open_series.values if spread_open_series is not None else None
+    use_open = sp_op is not None
+    n       = len(z_arr)
+
+    position    = np.zeros(n)
+    daily_pnl   = np.zeros(n)
+    trade_cost  = np.zeros(n)
+    pos         = 0
+    stopped_dir = 0   # direction most recently stopped (+1 or -1); 0 = none
 
     for i in range(1, n):
         z_prev = z_arr[i - 1]
-        z_now  = z_arr[i]
-        if np.isnan(z_prev) or np.isnan(z_now):
+        if np.isnan(z_prev) or np.isnan(sp_cl[i]) or np.isnan(sp_cl[i - 1]):
+            continue
+        if use_open and np.isnan(sp_op[i]):
             continue
 
+        prev_pos = pos
+
+        # Reset stopped direction when z returns inside the entry band.
+        # Must happen before exit/entry checks so a return inside the band
+        # on the same bar as a new signal allows re-entry immediately.
+        if stopped_dir == 1 and z_prev > -z_entry:
+            stopped_dir = 0
+        elif stopped_dir == -1 and z_prev < z_entry:
+            stopped_dir = 0
+
+        # --- Exit check (signal = z_prev) ---
         if pos == 1:
             if z_prev >= z_exit or z_prev <= -z_stop:
                 trade_cost[i] += 2 * cost_per_leg
+                if z_prev <= -z_stop:       # stop loss
+                    stopped_dir = 1
                 pos = 0
         elif pos == -1:
             if z_prev <= z_exit or z_prev >= z_stop:
                 trade_cost[i] += 2 * cost_per_leg
+                if z_prev >= z_stop:        # stop loss
+                    stopped_dir = -1
                 pos = 0
 
+        # --- Entry check (blocked if stopped in same direction) ---
         if pos == 0:
-            if z_prev < -z_entry:
+            if z_prev < -z_entry and stopped_dir != 1:
                 trade_cost[i] += 2 * cost_per_leg
                 pos = 1
-            elif z_prev > z_entry:
+            elif z_prev > z_entry and stopped_dir != -1:
                 trade_cost[i] += 2 * cost_per_leg
                 pos = -1
 
+        # --- P&L ---
+        if use_open:
+            if prev_pos == 0 and pos != 0:
+                # Pure entry: earn spread change from open to close
+                pnl = pos * (sp_cl[i] - sp_op[i])
+            elif prev_pos != 0 and pos == 0:
+                # Pure exit: earn spread change from prev close to open
+                pnl = prev_pos * (sp_op[i] - sp_cl[i - 1])
+            elif prev_pos != 0 and pos == prev_pos:
+                # Hold unchanged: earn full close-to-close
+                pnl = pos * (sp_cl[i] - sp_cl[i - 1])
+            elif prev_pos != 0 and pos != 0 and pos != prev_pos:
+                # Flip (exit one side, enter other at same open):
+                # earn overnight move at old direction, then intraday at new
+                pnl = (prev_pos * (sp_op[i] - sp_cl[i - 1])
+                       + pos    * (sp_cl[i]  - sp_op[i]))
+            else:
+                pnl = 0.0
+        else:
+            # Close-to-close P&L (used by unit tests with synthetic data)
+            pnl = pos * (sp_cl[i] - sp_cl[i - 1])
+
         position[i]  = pos
-        daily_pnl[i] = pos * (sp_arr[i] - sp_arr[i - 1]) - trade_cost[i]
+        daily_pnl[i] = pnl - trade_cost[i]
 
     return pd.DataFrame({
         "zscore":     z_arr,
-        "spread":     sp_arr,
+        "spread":     sp_cl,
         "position":   position,
         "daily_pnl":  daily_pnl,
         "trade_cost": trade_cost,
@@ -260,9 +359,10 @@ def run_pair(dep, indep, tests_passed):
     print(f"  Cost per leg    : {COST_PER_LEG*100:.1f} bps")
     print(f"  Train period    : 2018-01-01 to {TRAIN_END}")
     print(f"  Test period     : {TEST_START} to 2025-12-31")
+    print(f"  Execution       : signal at close(t), execute at open(t+1)")
 
-    # Load data
-    price_df, log_df = load_log_prices(dep, indep)
+    # Load close and open prices
+    price_df, open_df, log_df, log_open_df = load_prices(dep, indep)
     print(f"\n  Prices loaded: {len(price_df)} days  "
           f"({price_df.index[0].date()} to {price_df.index[-1].date()})")
 
@@ -273,25 +373,34 @@ def run_pair(dep, indep, tests_passed):
     print(f"  Test  : {len(test_log)} days  "
           f"({test_log.index[0].date()} to {test_log.index[-1].date()})")
 
-    # Estimate hedge ratio on training data
+    # Estimate hedge ratio on training data (close prices)
     hr, ic, r2 = estimate_hr(train_log[dep], train_log[indep])
-    print(f"\n  OLS ({train_log.index[0].date()} – {train_log.index[-1].date()}):")
+    print(f"\n  OLS ({train_log.index[0].date()} - {train_log.index[-1].date()}):")
     print(f"    Hedge ratio : {hr:.4f}")
     print(f"    Intercept   : {ic:.4f}")
     print(f"    R-squared   : {r2:.4f}")
 
-    spread_full, zscore_full = build_spread_zscore(log_df, dep, indep, hr, ic, LOOKBACK)
+    # Build close-price spread/zscore and open-price spread for execution
+    spread_full,      zscore_full      = build_spread_zscore(log_df,      dep, indep, hr, ic, LOOKBACK)
+    spread_open_full                   = build_open_spread(log_open_df,   dep, indep, hr, ic)
+
     train_spread_mean = float(spread_full.loc[:TRAIN_END].mean())
     train_spread_std  = float(spread_full.loc[:TRAIN_END].std())
     print(f"\n  Training spread:  mean={train_spread_mean:.4f}  std={train_spread_std:.4f}")
 
     # --- Out-of-sample test backtest ---
-    bt_test  = backtest(zscore_full.loc[TEST_START:], spread_full.loc[TEST_START:],
-                        Z_ENTRY, Z_EXIT, Z_STOP, COST_PER_LEG)
+    bt_test  = backtest(
+        zscore_full.loc[TEST_START:], spread_full.loc[TEST_START:],
+        Z_ENTRY, Z_EXIT, Z_STOP, COST_PER_LEG,
+        spread_open_series=spread_open_full.loc[TEST_START:],
+    )
 
     # --- Training period backtest ---
-    bt_train = backtest(zscore_full.loc[:TRAIN_END], spread_full.loc[:TRAIN_END],
-                        Z_ENTRY, Z_EXIT, Z_STOP, COST_PER_LEG)
+    bt_train = backtest(
+        zscore_full.loc[:TRAIN_END], spread_full.loc[:TRAIN_END],
+        Z_ENTRY, Z_EXIT, Z_STOP, COST_PER_LEG,
+        spread_open_series=spread_open_full.loc[:TRAIN_END],
+    )
     train_m  = compute_metrics(bt_train, label="Train 2018-2021")
     test_m   = compute_metrics(bt_test,  label="Test 2022-2025")
 
@@ -329,13 +438,18 @@ def run_pair(dep, indep, tests_passed):
         if len(test_wf) == 0:
             continue
         hr_wf, ic_wf, r2_wf = estimate_hr(train_wf[dep], train_wf[indep])
+        # Close spread for signal z-score
         spread_wf = log_df[dep] - hr_wf * log_df[indep] - ic_wf
         spread_to = spread_wf.loc[:f"{year}-12-31"]
         z_to = ((spread_to - spread_to.rolling(LOOKBACK).mean())
                 / spread_to.rolling(LOOKBACK).std())
-        z_yr  = z_to.loc[f"{year}-01-01":f"{year}-12-31"]
-        sp_yr = spread_wf.loc[f"{year}-01-01":f"{year}-12-31"]
-        bt_yr = backtest(z_yr, sp_yr, Z_ENTRY, Z_EXIT, Z_STOP, COST_PER_LEG)
+        z_yr    = z_to.loc[f"{year}-01-01":f"{year}-12-31"]
+        sp_yr   = spread_wf.loc[f"{year}-01-01":f"{year}-12-31"]
+        # Open spread for execution pricing
+        sp_op_yr = (log_open_df[dep] - hr_wf * log_open_df[indep] - ic_wf
+                    ).loc[f"{year}-01-01":f"{year}-12-31"]
+        bt_yr = backtest(z_yr, sp_yr, Z_ENTRY, Z_EXIT, Z_STOP, COST_PER_LEG,
+                         spread_open_series=sp_op_yr)
         m = compute_metrics(bt_yr, label=str(year))
         m["HR"] = round(hr_wf, 4)
         m["R2"] = round(r2_wf, 4)
@@ -362,7 +476,10 @@ def run_pair(dep, indep, tests_passed):
     print(f"  Results saved -> {csv_out.name}")
 
     # --- Full period and trade log ---
-    bt_full = backtest(zscore_full, spread_full, Z_ENTRY, Z_EXIT, Z_STOP, COST_PER_LEG)
+    bt_full = backtest(
+        zscore_full, spread_full, Z_ENTRY, Z_EXIT, Z_STOP, COST_PER_LEG,
+        spread_open_series=spread_open_full,
+    )
     full_m  = compute_metrics(bt_full, label="Full 2018-2025")
 
     comp_df = pd.DataFrame([train_m, test_m, full_m])
@@ -384,8 +501,11 @@ def run_pair(dep, indep, tests_passed):
     cost_sweep_records = []
     for bps in [5, 10, 20, 30]:
         cost = bps / 10_000
-        bt_c = backtest(zscore_full.loc[TEST_START:], spread_full.loc[TEST_START:],
-                        Z_ENTRY, Z_EXIT, Z_STOP, cost)
+        bt_c = backtest(
+            zscore_full.loc[TEST_START:], spread_full.loc[TEST_START:],
+            Z_ENTRY, Z_EXIT, Z_STOP, cost,
+            spread_open_series=spread_open_full.loc[TEST_START:],
+        )
         m_c = compute_metrics(bt_c, label=f"{bps}bps")
         cost_sweep_records.append({
             "Cost_bps": bps, "Sharpe": m_c["Sharpe_ratio"],
@@ -397,10 +517,14 @@ def run_pair(dep, indep, tests_passed):
     cost_sweep_df.to_csv(cost_sweep_csv, index=False)
 
     # --- Sensitivity grid ---
-    def _sens(z_entry, lb, z_stop):
-        sp_v, z_v = build_spread_zscore(log_df, dep, indep, hr, ic, lb)
-        bt_v = backtest(z_v.loc[TEST_START:], sp_v.loc[TEST_START:],
-                        z_entry, Z_EXIT, z_stop, COST_PER_LEG)
+    def _sens(z_entry_val, lb, z_stop_val):
+        sp_v, z_v  = build_spread_zscore(log_df, dep, indep, hr, ic, lb)
+        sp_op_v    = build_open_spread(log_open_df, dep, indep, hr, ic)
+        bt_v = backtest(
+            z_v.loc[TEST_START:], sp_v.loc[TEST_START:],
+            z_entry_val, Z_EXIT, z_stop_val, COST_PER_LEG,
+            spread_open_series=sp_op_v.loc[TEST_START:],
+        )
         return compute_metrics(bt_v)
 
     sens_records = []
@@ -441,7 +565,7 @@ def run_pair(dep, indep, tests_passed):
             ax1.axvspan(dates[i-1], dates[i], alpha=0.13, color="green",  lw=0)
         elif pos_arr[i] == -1:
             ax1.axvspan(dates[i-1], dates[i], alpha=0.13, color="tomato", lw=0)
-    ax1.set_title(f"{dep}/{indep} Z-score — Test {TEST_START[:4]}-2025  "
+    ax1.set_title(f"{dep}/{indep} Z-score -- Test {TEST_START[:4]}-2025  "
                   "(green=long, red=short spread)", fontsize=10)
     ax1.set_ylabel("Z-score")
     ax1.legend(fontsize=7.5, loc="upper right", ncol=3)
@@ -452,7 +576,7 @@ def run_pair(dep, indep, tests_passed):
     ax2.plot(sp_test.index, sp_test.values, color="darkorange", lw=0.85)
     ax2.axhline(train_spread_mean, color="black", ls="--", lw=0.8,
                 label=f"Training mean ({train_spread_mean:.4f})")
-    ax2.set_title(f"Spread = log({dep}) − {hr:.4f}·log({indep}) − {ic:.4f}", fontsize=10)
+    ax2.set_title(f"Spread = log({dep}) - {hr:.4f}*log({indep}) - {ic:.4f}", fontsize=10)
     ax2.set_ylabel("Spread (log-price units)")
     ax2.legend(fontsize=8)
     ax2.set_xlim(bt_test.index[0], bt_test.index[-1])
@@ -468,7 +592,7 @@ def run_pair(dep, indep, tests_passed):
                    f"Sortino={test_m['Sortino_ratio']:.2f}  "
                    f"MaxDD={test_m['Max_drawdown']:.4f}  "
                    f"WinRate={test_m['Win_rate_pct']:.1f}%")
-    ax3.set_title(f"Cumulative P&L — Test Period  |  {metrics_str}", fontsize=9.5)
+    ax3.set_title(f"Cumulative P&L -- Test Period  |  {metrics_str}", fontsize=9.5)
     ax3.set_ylabel("Cumulative log-return P&L")
     ax3.set_xlabel("Date")
     ax3.set_xlim(bt_test.index[0], bt_test.index[-1])
@@ -513,7 +637,7 @@ def run_pair(dep, indep, tests_passed):
                     alpha=0.07, color="orange", label=f"Test ({TEST_START[:4]}-2025)")
     ax_full.axvspan(zscore_full.index[0], pd.Timestamp(TRAIN_END),
                     alpha=0.07, color="skyblue", label=f"Train (2018-{TRAIN_END[:4]})")
-    ax_full.set_title(f"{dep}/{indep} Spread Z-score — Full Period 2018-2025", fontsize=11)
+    ax_full.set_title(f"{dep}/{indep} Spread Z-score -- Full Period 2018-2025", fontsize=11)
     ax_full.set_ylabel("Z-score")
     ax_full.legend(fontsize=9)
     plt.tight_layout()
@@ -546,7 +670,7 @@ def run_pair(dep, indep, tests_passed):
 
 
 # ---------------------------------------------------------------------------
-# Main — read selected pairs and run strategy for each
+# Main -- read selected pairs and run strategy for each
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     print("=" * 65)
@@ -567,11 +691,13 @@ if __name__ == "__main__":
             print(f"  {dep}/{indep}  [{tp}]")
     else:
         pair_list = [("AMZN", "META", "Both")]
-        print(f"\nWARNING: {selected_csv.name} not found — falling back to AMZN/META.")
+        print(f"\nWARNING: {selected_csv.name} not found -- falling back to AMZN/META.")
         print("Run phase3_cointegration.py first to generate selected_pairs.csv.")
 
     print(f"\nStrategy parameters: entry=+-{Z_ENTRY}  exit={Z_EXIT}  "
           f"stop=+-{Z_STOP}  window={LOOKBACK}d  cost={COST_PER_LEG*100:.1f}bps/leg")
+    print("Execution: signal at close(t), execute at open(t+1) [open-price P&L]")
+    print("Stop-loss guard: re-entry in same direction blocked until z returns inside band")
 
     # Run all pairs
     summary_rows = []

@@ -76,45 +76,68 @@ class TestBacktestPositionLogic:
 
     def test_stop_loss_closes_long_position(self):
         """
-        Long position hits stop loss and then exits on mean reversion.
-
-        Engine rule: at bar i, decisions use z[i-1] (z_prev).
-        When z_prev crosses the stop threshold AND is still below -z_entry,
-        the engine exits and immediately re-enters in the same bar.
+        Long position hits stop loss; re-entry in the same direction is blocked
+        until z returns inside the entry band.
 
         Sequence (z by bar index, 0..4):
-          i=1: z_prev=z[0]=-2.5 < -2.0  → enter long.  pos[1]=+1
-          i=2: z_prev=z[1]=-2.5  → no exit, no new entry.  pos[2]=+1
-          i=3: z_prev=z[2]=-3.1 ≤ -3.0  → stop exit.
-               z_prev=-3.1 < -2.0 → immediate re-entry.  pos[3]=+1
-          i=4: z_prev=z[3]=0.0  ≥  0.0  → mean-reversion exit.  pos[4]=0
+          i=1: z_prev=z[0]=-2.5 < -2.0  -> enter long.  pos[1]=+1
+          i=2: z_prev=z[1]=-2.5          -> hold.        pos[2]=+1
+          i=3: z_prev=z[2]=-3.1 <= -3.0 -> stop loss fires, stopped_dir=+1.
+               Re-entry blocked (stopped_dir==+1).       pos[3]=0
+          i=4: z_prev=z[3]=0.0 > -2.0   -> stop guard cleared (z inside band).
+               No new signal (z_prev not < -2 or > 2).  pos[4]=0
         """
         idx = _make_index(5)
         z  = pd.Series([-2.5, -2.5, -3.1,  0.0,  0.5], index=idx)
         sp = pd.Series([ 0.0,  0.1,  0.2,  0.3,  0.4], index=idx)
         bt = backtest(z, sp, z_entry=2.0, z_exit=0.0, z_stop=3.0, cost_per_leg=0.0)
         assert bt["position"].iloc[1] == 1, "Long entered at bar 1"
-        assert bt["position"].iloc[3] == 1, "Stop fires but re-enters (z_prev still below -entry)"
-        assert bt["position"].iloc[4] == 0, "Flat after mean reversion at bar 4"
+        assert bt["position"].iloc[2] == 1, "Still long at bar 2"
+        assert bt["position"].iloc[3] == 0, "Stop fires and re-entry blocked (same direction)"
+        assert bt["position"].iloc[4] == 0, "Flat: stop guard cleared but no new signal"
 
     def test_stop_loss_closes_short_position(self):
         """
-        Short position hits stop loss and then exits on mean reversion.
+        Short position hits stop loss; re-entry in the same direction is blocked
+        until z returns inside the entry band.
 
         Sequence (z by bar index, 0..4):
-          i=1: z_prev=z[0]=+2.5 > +2.0  → enter short.  pos[1]=-1
-          i=2: z_prev=z[1]=+2.5  → no exit.  pos[2]=-1
-          i=3: z_prev=z[2]=+3.1 ≥ +3.0  → stop exit.
-               z_prev=+3.1 > +2.0 → immediate re-entry.  pos[3]=-1
-          i=4: z_prev=z[3]=0.0  ≤  0.0  → mean-reversion exit.  pos[4]=0
+          i=1: z_prev=z[0]=+2.5 > +2.0  -> enter short.  pos[1]=-1
+          i=2: z_prev=z[1]=+2.5          -> hold.         pos[2]=-1
+          i=3: z_prev=z[2]=+3.1 >= +3.0 -> stop loss fires, stopped_dir=-1.
+               Re-entry blocked (stopped_dir==-1).        pos[3]=0
+          i=4: z_prev=z[3]=0.0 < +2.0   -> stop guard cleared (z inside band).
+               No new signal (z_prev not < -2 or > 2).   pos[4]=0
         """
         idx = _make_index(5)
         z  = pd.Series([2.5, 2.5,  3.1,  0.0, -0.5], index=idx)
         sp = pd.Series([0.0, 0.1,  0.2,  0.3,  0.4], index=idx)
         bt = backtest(z, sp, z_entry=2.0, z_exit=0.0, z_stop=3.0, cost_per_leg=0.0)
         assert bt["position"].iloc[1] == -1, "Short entered at bar 1"
-        assert bt["position"].iloc[3] == -1, "Stop fires but re-enters (z_prev still above +entry)"
-        assert bt["position"].iloc[4] ==  0, "Flat after mean reversion at bar 4"
+        assert bt["position"].iloc[2] == -1, "Still short at bar 2"
+        assert bt["position"].iloc[3] ==  0, "Stop fires and re-entry blocked (same direction)"
+        assert bt["position"].iloc[4] ==  0, "Flat: stop guard cleared but no new signal"
+
+    def test_stop_loss_allows_opposite_direction_reentry(self):
+        """
+        After a long stop loss, entering a short position is still permitted
+        on the same bar (z well above +entry), and vice versa.
+
+        Sequence (z by bar index, 0..4):
+          i=1: z_prev=z[0]=-2.5 < -2.0  -> enter long.  pos[1]=+1
+          i=2: z_prev=z[1]=-3.1 <= -3.0 -> stop long, stopped_dir=+1.
+               z_prev=-3.1 not > +2.0    -> no short entry.   pos[2]=0
+          i=3: z_prev=z[2]=+3.0 > +2.0  -> enter short (opposite direction OK).  pos[3]=-1
+          i=4: z_prev=z[3]=0.0  <= 0.0  -> exit short.  pos[4]=0
+        """
+        idx = _make_index(5)
+        z  = pd.Series([-2.5, -3.1,  3.0,  0.0,  0.5], index=idx)
+        sp = pd.Series([ 0.0,  0.1,  0.2,  0.3,  0.4], index=idx)
+        bt = backtest(z, sp, z_entry=2.0, z_exit=0.0, z_stop=3.0, cost_per_leg=0.0)
+        assert bt["position"].iloc[1] ==  1, "Long entered at bar 1"
+        assert bt["position"].iloc[2] ==  0, "Stop loss fired; flat"
+        assert bt["position"].iloc[3] == -1, "Short entered (opposite direction allowed)"
+        assert bt["position"].iloc[4] ==  0, "Flat after mean reversion"
 
     def test_no_position_flip_without_going_flat_first(self):
         """
