@@ -53,7 +53,7 @@ Phase 3 selects pairs that pass **at least one** of the two cointegration tests
 
 | File | Description |
 |---|---|
-| `outputs/reports/master_data.csv` | Master dataset (OHLCV + returns + benchmarks + time indicators) |
+| `data/processed/master_data.csv` | Master dataset (OHLCV + returns + benchmarks + time indicators) |
 | `outputs/reports/cointegration_results.csv` | Full EG + Johansen results for all 15 pairs |
 | `outputs/reports/selected_pairs.csv` | Pairs that pass at least one cointegration test — contract for downstream phases |
 | `outputs/reports/strategy_{DEP}_{INDEP}_results.csv` | Per-pair strategy results (train/test/walk-forward) |
