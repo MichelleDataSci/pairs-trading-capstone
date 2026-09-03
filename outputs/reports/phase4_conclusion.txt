@@ -1,36 +1,109 @@
 
-PHASE 4 -- TESTING MEAN REVERSION ON UNSEEN DATA
-=================================================
+PHASE 4 -- TESTING MEAN REVERSION ON UNSEEN DATA (JAN-JUL 2026)
+================================================================
 
-METHODOLOGY:
-  Pair              : AMZN / META
-  OLS fitted on     : 2018-01-01 to 2025-12-31 (2011 trading days)
-  Hedge ratio (beta): 0.597664
-  Intercept (alpha) : 1.532298
-  R-squared         : 0.786600
-  Norm window (mu/sigma): 2025-01-01 to 2025-12-31 (250 days)
-  Fixed mu          : -0.035929
-  Fixed sigma       : 0.060724
+Both pairs selected in Phase 3 were tested on genuinely unseen 2026 data.
 
-TEST PERIOD RESULTS (Jan-Jul 2026):
-  Trading days : 145
-  Z-score mean : 2.0026  (0.0 = perfect mean reversion anchor)
-  Z-score std  : 1.5844   (1.0 = variance unchanged from training)
-  Z-score min  : -1.1505
-  Z-score max  : 5.4250
+METHODOLOGY (applied identically to each pair)
+-----------------------------------------------
+  Training window : 2018-01-01 to 2025-12-31 (full 8-year history)
+  Normalisation   : 2025 residuals only (250 trading days)
+                    mu and sigma are fixed from 2025 and not updated in 2026.
+                    This is stricter than Phase 3b's rolling 30-day z-score --
+                    any drift in the spread level or variance in 2026 shows up
+                    as persistent z-score deviation.
+  Test period     : 2026-01-02 to 2026-07-31 (145 trading days)
+  Z-score         : Z_t = (spread_t - mu_2025) / sigma_2025
+  Signals         : stateful entry/exit -- enter long at Z < -2, enter short
+                    at Z > +2, exit at Z = 0 (same rules as Phase 3b backtest)
 
-TRADING SIGNALS:
-  Long  entries (Z < -2.0) : 0
-  Short entries (Z >  2.0) : 2
-  Total signals                  : 2
-  Days in market                 : 99 (68.3%)
+PAIR 1: AMZN / META  [Primary -- passes both EG and Johansen at 5%]
+---------------------------------------------------------------------
+  OLS direction   : AMZN ~ META  (AMZN as dependent variable)
+  Hedge ratio     : 0.5977
+  Intercept       : 1.5323
+  R-squared       : 0.787
 
-MEAN REVERSION ASSESSMENT:
-  WEAK evidence of mean reversion. The Z-score mean (2.003) has drifted significantly from zero, suggesting the spread has shifted from its historical equilibrium in the 2026 test period.
+  2025 normalisation:
+    mu    : -0.0359
+    sigma :  0.0607
 
-IMPORTANT NOTE:
-  The Z-score in Phase 4 uses a fixed mu and sigma anchored to 2025.
-  This is stricter than Phase 3b (which used a rolling 30-day window).
-  A fixed anchor is more conservative -- any drift in the spread level
-  or variance in 2026 will show up as Z-score deviation, even if the
-  pair remains broadly cointegrated.
+  Test period results (Jan-Jul 2026):
+    Trading days  : 145
+    Z-score mean  : +2.003  (benchmark = 0 for perfect mean reversion)
+    Z-score std   :  1.584
+    Z-score range : -1.15 to +5.43
+
+  Trading signals:
+    Long  entries (Z < -2.0) :  0
+    Short entries (Z >  2.0) :  2
+    Days in market           : 99  (68.3%)
+
+  The spread drifted persistently ABOVE the 2025 equilibrium from the start
+  of 2026.  Both short signals were triggered; the first eventually exited
+  at Z = 0, the second remained open at 31 July.  No long signals fired.
+
+PAIR 2: MSFT / AAPL  [Secondary -- Johansen trace 10% only, supervisor-approved]
+----------------------------------------------------------------------------------
+  OLS direction   : MSFT ~ AAPL  (MSFT as dependent variable)
+  Hedge ratio     : 0.8710
+  Intercept       : 1.3022
+  R-squared       : 0.957
+
+  2025 normalisation:
+    mu    : +0.0870
+    sigma :  0.1186
+
+  Test period results (Jan-Jul 2026):
+    Trading days  : 145
+    Z-score mean  : -2.421  (benchmark = 0 for perfect mean reversion)
+    Z-score std   :  0.933
+    Z-score range : -4.26 to -0.40
+
+  Trading signals:
+    Long  entries (Z < -2.0) :  1
+    Short entries (Z >  2.0) :  0
+    Days in market           : 124  (85.5%)
+
+  The spread drifted persistently BELOW the 2025 equilibrium throughout
+  the test period.  One long signal fired (Z < -2) and remained open at
+  31 July without reaching the Z = 0 exit.  No short signals fired.
+
+COMPARATIVE ASSESSMENT
+-----------------------
+  Both pairs show WEAK mean reversion over Jan-Jul 2026.
+
+  AMZN/META : persistent positive drift (+2.0 sigma above 2025 equilibrium)
+  MSFT/AAPL : persistent negative drift (-2.4 sigma below 2025 equilibrium)
+
+  The drift directions are opposite, which rules out a single macro factor
+  pushing both spreads in one direction.  Instead, each pair's constituent
+  stocks appear to have experienced idiosyncratic relative re-pricing in
+  early 2026 that was not consistent with the 2018-2025 cointegrating
+  relationship.
+
+  This is a valid empirical result and should not be adjusted to appear more
+  favourable.  The cointegration evidence from 2018-2025 does not guarantee
+  short-window mean reversion in unseen data -- especially for AMZN/META,
+  whose EG p-value (0.014) already sits close to the 5% threshold, and for
+  MSFT/AAPL, which was included as a borderline secondary candidate.
+
+IMPLICATIONS FOR PHASE 5
+--------------------------
+  The Phase 4 results directly motivate the machine learning phase.
+  A fixed cointegration model cannot distinguish periods of genuine mean
+  reversion from regime shifts.  A predictive model trained on spread
+  features (z-score level, z-score momentum, VIX, hedge ratio stability)
+  could potentially identify conditions where mean reversion is more likely,
+  allowing the strategy to hold off during persistent drift episodes like
+  those observed in Jan-Jul 2026.
+
+OUTPUT FILES
+------------
+  outputs/reports/phase4_AMZN_META_summary.csv    -- AMZN/META results
+  outputs/reports/phase4_MSFT_AAPL_summary.csv    -- MSFT/AAPL results
+  outputs/reports/phase4_cross_pair_summary.csv   -- both pairs side-by-side
+  outputs/reports/phase4_AMZN_META_signals.csv    -- daily Z-scores and signals
+  outputs/reports/phase4_MSFT_AAPL_signals.csv    -- daily Z-scores and signals
+  outputs/charts/phase4_AMZN_META_zscore_2026.png -- Z-score chart (AMZN/META)
+  outputs/charts/phase4_MSFT_AAPL_zscore_2026.png -- Z-score chart (MSFT/AAPL)
