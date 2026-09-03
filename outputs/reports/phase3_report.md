@@ -1,7 +1,7 @@
 # Phase 3 Report — Cointegration Screening & Pairs Trading Strategy
 **Date:** 2026-07-25
 **Scripts:** `src/phase3_cointegration.py`, `src/phase3_strategy.py`
-**Data:** Log prices, 2018-01-02 to 2025-12-30 (2,010 trading days)
+**Data:** Log prices, 2018-01-02 to 2025-12-31 (2,010 trading days)
 **Universe:** MSFT, GOOGL, NVDA, AAPL, AMZN, META (6 stocks → 15 possible pairs)
 
 ---
@@ -20,35 +20,45 @@ Three methods were applied to every pair:
 
 All pairs ranked by EG p-value (ascending = stronger evidence).
 
-**Selection criterion:** a pair was selected for trading if and only if it passed both the Engle-Granger test and the Johansen test at the 5% significance level. Requiring agreement from two independent methods — one residual-based and one multivariate — reduces the risk of selecting a spurious pair that passes a single test by chance. Of the 15 pairs screened, **only AMZN/META met this criterion** and was taken forward to the strategy phase.
+**Selection criterion — two tiers:**
+
+- **Primary:** a pair is selected if at least one of EG or Johansen trace passes at the conventional 5% significance level. Requiring two independent methods — one residual-based and one multivariate — reduces false-positive risk.
+- **Secondary (supervisor-approved):** a pair is additionally carried forward as a borderline candidate if the Johansen *trace* test passes at 10% but not 5%. This exception was explicitly directed by the project supervisor (Vinayak) and is documented as such in all output files.
+
+**Lag specification for Johansen tests:** the `VAR.select_order()` BIC criterion was run on differenced log prices for all 15 pairs (max lags = 5). The median BIC-selected lag across all 15 pairs was taken as a shared `k_ar_diff` applied uniformly to every Johansen test. Using a shared lag keeps comparisons consistent and avoids overfitting the specification to any individual pair.
+
+**Note on log-price non-stationarity:** the cointegration framework requires each individual series to be I(1) (integrated of order 1). Individual stock log prices are generally accepted to contain a unit root (ADF tests on log levels routinely fail to reject the null of a unit root for equity price series), consistent with the efficient-market hypothesis. First-differencing (daily log returns) renders them stationary.
 
 ---
 
 ### Results — All 15 Pairs Ranked
 
-| Rank | Pair | OLS Direction | Hedge Ratio | ADF p (residuals) | EG p-value | EG Pass | Johansen Pass |
-|------|------|---------------|-------------|-------------------|------------|---------|---------------|
-| 1 | **AMZN/META** | AMZN~META | 0.5976 | 0.0031 | **0.0144** | **YES** | **YES** |
-| 2 | NVDA/AMZN | AMZN~NVDA | 0.2392 | 0.0397 | 0.1220 | NO | NO |
-| 3 | GOOGL/AMZN | AMZN~GOOGL | 0.6671 | 0.0669 | 0.1844 | NO | NO |
-| 4 | MSFT/AAPL | MSFT~AAPL | 0.8711 | 0.0758 | 0.2032 | NO | NO |
-| 5 | MSFT/NVDA | MSFT~NVDA | 0.4094 | 0.0951 | 0.2458 | NO | NO |
-| 6 | AAPL/AMZN | AMZN~AAPL | 0.4880 | 0.1395 | 0.3208 | NO | NO |
-| 7 | MSFT/AMZN | AMZN~MSFT | 0.5674 | 0.1606 | 0.3554 | NO | NO |
-| 8 | MSFT/META | MSFT~META | 0.8381 | 0.1818 | 0.3886 | NO | NO |
-| 9 | NVDA/META | META~NVDA | 0.3674 | 0.2387 | 0.4685 | NO | NO |
-| 10 | GOOGL/NVDA | NVDA~GOOGL | 2.5463 | 0.2515 | 0.4850 | NO | NO |
-| 11 | NVDA/AAPL | AAPL~NVDA | 0.4471 | 0.3348 | 0.5828 | NO | NO |
-| 12 | AAPL/META | AAPL~META | 0.8562 | 0.3820 | 0.6313 | NO | NO |
-| 13 | GOOGL/AAPL | AAPL~GOOGL | 1.2392 | 0.4164 | 0.6632 | NO | NO |
-| 14 | GOOGL/META | META~GOOGL | 0.9357 | 0.4198 | 0.6665 | NO | NO |
-| 15 | MSFT/GOOGL | MSFT~GOOGL | 1.1214 | 0.4691 | 0.7091 | NO | NO |
+| Rank | Pair | OLS Direction | Hedge Ratio | ADF p (residuals) | EG p-value | EG Pass (5%) | Johansen Trace | 5% Crit | 10% Crit | Johansen Pass | Selection |
+|------|------|---------------|-------------|-------------------|------------|--------------|----------------|---------|----------|---------------|-----------|
+| 1 | **AMZN/META** | AMZN~META | 0.5977 | 0.0031 | **0.0143** | **YES** | **17.54** | 15.49 | 13.43 | **YES (5%)** | **Primary** |
+| 2 | NVDA/AMZN | AMZN~NVDA | 0.2392 | 0.0394 | 0.1214 | NO | 9.29 | 15.49 | 13.43 | NO | — |
+| 3 | GOOGL/AMZN | AMZN~GOOGL | 0.6667 | 0.0680 | 0.1867 | NO | 11.56 | 15.49 | 13.43 | NO | — |
+| 4 | **MSFT/AAPL** | MSFT~AAPL | 0.8710 | 0.0757 | 0.2031 | NO | **14.56** | 15.49 | 13.43 | **YES (10%)** | **Secondary†** |
+| 5 | MSFT/NVDA | MSFT~NVDA | 0.4093 | 0.0968 | 0.2490 | NO | 10.91 | 15.49 | 13.43 | NO | — |
+| 6 | AAPL/AMZN | AMZN~AAPL | 0.4882 | 0.1380 | 0.3183 | NO | 9.62 | 15.49 | 13.43 | NO | — |
+| 7 | MSFT/AMZN | AMZN~MSFT | 0.5675 | 0.1596 | 0.3538 | NO | 8.09 | 15.49 | 13.43 | NO | — |
+| 8 | MSFT/META | MSFT~META | 0.8381 | 0.1816 | 0.3883 | NO | 6.81 | 15.49 | 13.43 | NO | — |
+| 9 | NVDA/META | META~NVDA | 0.3675 | 0.2376 | 0.4670 | NO | 4.58 | 15.49 | 13.43 | NO | — |
+| 10 | GOOGL/NVDA | NVDA~GOOGL | 2.5446 | 0.2513 | 0.4848 | NO | 5.75 | 15.49 | 13.43 | NO | — |
+| 11 | NVDA/AAPL | AAPL~NVDA | 0.4470 | 0.3351 | 0.5831 | NO | 4.51 | 15.49 | 13.43 | NO | — |
+| 12 | AAPL/META | AAPL~META | 0.8564 | 0.3822 | 0.6316 | NO | 4.61 | 15.49 | 13.43 | NO | — |
+| 13 | GOOGL/AAPL | AAPL~GOOGL | 1.2378 | 0.4172 | 0.6639 | NO | 4.43 | 15.49 | 13.43 | NO | — |
+| 14 | GOOGL/META | META~GOOGL | 0.9353 | 0.4215 | 0.6680 | NO | 7.68 | 15.49 | 13.43 | NO | — |
+| 15 | MSFT/GOOGL | MSFT~GOOGL | 1.1201 | 0.4802 | 0.7177 | NO | 11.39 | 15.49 | 13.43 | NO | — |
+
+† MSFT/AAPL: Johansen trace (14.56) exceeds the 10% critical value (13.43) but not the 5% critical value (15.49). The Johansen max-eigenvalue test (12.11 vs 12.30 at 10%) does not pass even at 10%. Carried forward as a secondary candidate per supervisor instruction.
 
 **EG vs Johansen agreement summary:**
-- Both methods pass (5% level): **1 pair** — AMZN/META
-- EG only: 0 pairs
-- Johansen only: 0 pairs
-- Neither: 14 pairs
+- Both EG and Johansen 5% pass: **1 pair** — AMZN/META
+- EG 5% only: 0 pairs
+- Johansen 5% only: 0 pairs
+- Johansen trace 10% only (borderline, supervisor-approved): **1 pair** — MSFT/AAPL
+- Neither: 13 pairs
 
 ---
 
@@ -95,9 +105,11 @@ This result indicates that NVDA was not cointegrated with any of its tech peers 
 
 In 5 of the 15 pairs, AMZN's log price was selected as the dependent variable (the AMZN~X direction produced more stationary residuals than X~AMZN). In the notation A~B, A is the dependent variable regressed on B as the independent variable. This pattern suggests that modelling AMZN as a function of its peers captures the long-run relationship better than the reverse, consistent with AMZN having broad macro sensitivity (AWS cloud, consumer spending) that ties it to movements in other large-cap tech stocks.
 
-#### Finding 5: The next-closest pairs (NVDA/AMZN and GOOGL/AMZN) do not pass
+#### Finding 5: MSFT/AAPL is the only borderline candidate; all others fail by a clear margin
 
-NVDA/AMZN (EG p = 0.122) and GOOGL/AMZN (EG p = 0.184) are the next-ranked pairs but both fail the 5% threshold by a comfortable margin. Neither passes the Johansen test either. There is no second-tier pair that could be considered a borderline candidate for trading.
+MSFT/AAPL (EG p = 0.203) is the sole borderline case: its Johansen trace statistic (14.56) exceeds the 10% critical value (13.43) but falls short of the 5% critical value (15.49). The Johansen max-eigenvalue statistic (12.11) does not pass even at 10% (critical value 12.30). On the strength of the trace result alone and per supervisor instruction, MSFT/AAPL is carried forward as a secondary candidate.
+
+NVDA/AMZN (EG p = 0.121) and GOOGL/AMZN (EG p = 0.187) are the next-closest pairs after MSFT/AAPL but both fail the 5% threshold by a comfortable margin and do not approach the 10% Johansen threshold. All remaining 11 pairs fail all tests conclusively.
 
 ---
 
@@ -241,7 +253,7 @@ Win rates range from 47% to 57%, with most years above 50%. This indicates the d
 
 ## Conclusions and Implications for Phase 4
 
-1. **AMZN/META is the only cointegrated pair** across all 15 combinations of the 6 tech stocks over 2018-2025. All other pairs fail both the Engle-Granger and Johansen tests.
+1. **Two pairs are taken forward to the strategy phase.** AMZN/META is the primary selection: it passes both Engle-Granger (p = 0.0143) and the Johansen trace test (17.54 vs 15.49 at 5%). MSFT/AAPL is a secondary, borderline candidate: it passes only the Johansen trace test at 10% (14.56 vs 13.43) and fails EG and the Johansen max-eigenvalue test at any conventional level. MSFT/AAPL was carried forward per supervisor instruction. The 13 remaining pairs fail all tests conclusively.
 
 2. **The strategy is only weakly profitable.** Walk-forward validation shows a positive total P&L (+0.199 over 7 years) but an average Sharpe of only +0.18. The out-of-sample test period (2022-2025) produces a negative Sharpe (−0.12) and a cumulative loss of −0.154 log-return units.
 

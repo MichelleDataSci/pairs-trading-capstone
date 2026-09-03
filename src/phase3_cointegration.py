@@ -9,8 +9,16 @@ Methods (per project scope):
      + residual ADF with correct non-standard critical values).
   3. Johansen multivariate cointegration test.
 
+Selection criterion:
+  Primary   -- at least one of EG or Johansen trace passes at 5%.
+  Secondary -- Johansen trace passes at 10% but not 5%; pair carried
+               forward as a borderline candidate per supervisor instruction
+               (Vinayak, project brief).  Documented explicitly so the
+               selection basis is transparent in all downstream files.
+
 Output:
   outputs/reports/cointegration_results.csv  -- full results table, all 15 pairs
+  outputs/reports/selected_pairs.csv         -- pairs taken forward to strategy
   outputs/charts/spread_series_all_pairs.png -- OLS residual plots, all 15 pairs
   outputs/charts/cointegration_ranking.png   -- EG p-value ranking bar chart
 """
@@ -92,8 +100,8 @@ def pick_direction(log_a, log_b, ticker_a, ticker_b):
         resid       : pd.Series
         adf_stat    : float
         adf_pval    : float
-        dep         : str  — the dependent ticker in the chosen direction
-        indep       : str  — the independent ticker in the chosen direction
+        dep         : str  -- the dependent ticker in the chosen direction
+        indep       : str  -- the independent ticker in the chosen direction
     """
     hr_ab, ic_ab, resid_ab, adf_ab, pval_ab = ols_adf(log_a, log_b)
     hr_ba, ic_ba, resid_ba, adf_ba, pval_ba = ols_adf(log_b, log_a)
@@ -120,38 +128,47 @@ def johansen(log_pair_df, det_order=0, k_ar_diff=1):
     """
     Johansen cointegration test on a 2-column log price DataFrame.
     det_order=0: constant in the cointegrating relationship.
-    k_ar_diff=1: one lag in the VAR (equivalent to a VAR(2) in levels).
-      Lag choice rationale: see the VAR LAG SELECTION section below, which
-      runs VAR.select_order(maxlags=5) on all 15 pairs and prints AIC/BIC/
-      HQC results.  The selected lag for each pair is verified there before
-      the Johansen tests run; k_ar_diff=1 is used only when confirmed.
-    Critical values at 5% level (index 1 in the cvt/cvm arrays).
-    Returns dict of trace and max-eigenvalue stats, crits, and pass flags.
+    k_ar_diff  : lags in differences.  Determined by the VAR LAG SELECTION
+                 block below, which runs VAR.select_order() on all 15 pairs
+                 and takes the median BIC-selected lag as a shared K_AR_DIFF
+                 applied uniformly to every Johansen test.  This converts the
+                 lag choice from an assertion into a reproducible, data-driven
+                 decision.  The function accepts k_ar_diff as a parameter so
+                 callers can override it; the actual value is printed to stdout.
+    Critical value columns: ci=0 -> 10%, ci=1 -> 5%, ci=2 -> 1%.
+    Returns trace and max-eigenvalue stats at both 5% and 10%, plus pass flags.
     """
     res = coint_johansen(log_pair_df, det_order=det_order, k_ar_diff=k_ar_diff)
-    ci = 1  # 5% column
+    ci5  = 1   # 5%  significance column
+    ci10 = 0   # 10% significance column
     return {
-        "trace_stat_r0":        round(float(res.lr1[0]), 4),
-        "trace_crit_r0_5pct":   round(float(res.cvt[0, ci]), 4),
-        "trace_stat_r1":        round(float(res.lr1[1]), 4),
-        "trace_crit_r1_5pct":   round(float(res.cvt[1, ci]), 4),
-        "maxeig_stat_r0":       round(float(res.lr2[0]), 4),
-        "maxeig_crit_r0_5pct":  round(float(res.cvm[0, ci]), 4),
-        "maxeig_stat_r1":       round(float(res.lr2[1]), 4),
-        "maxeig_crit_r1_5pct":  round(float(res.cvm[1, ci]), 4),
-        "trace_pass":           bool(res.lr1[0] > res.cvt[0, ci]),
-        "maxeig_pass":          bool(res.lr2[0] > res.cvm[0, ci]),
+        "trace_stat_r0":          round(float(res.lr1[0]), 4),
+        "trace_crit_r0_5pct":     round(float(res.cvt[0, ci5]),  4),
+        "trace_crit_r0_10pct":    round(float(res.cvt[0, ci10]), 4),
+        "trace_stat_r1":          round(float(res.lr1[1]), 4),
+        "trace_crit_r1_5pct":     round(float(res.cvt[1, ci5]),  4),
+        "maxeig_stat_r0":         round(float(res.lr2[0]), 4),
+        "maxeig_crit_r0_5pct":    round(float(res.cvm[0, ci5]),  4),
+        "maxeig_crit_r0_10pct":   round(float(res.cvm[0, ci10]), 4),
+        "maxeig_stat_r1":         round(float(res.lr2[1]), 4),
+        "maxeig_crit_r1_5pct":    round(float(res.cvm[1, ci5]),  4),
+        "trace_pass_5pct":        bool(res.lr1[0] > res.cvt[0, ci5]),
+        "trace_pass_10pct":       bool(res.lr1[0] > res.cvt[0, ci10]),
+        "maxeig_pass_5pct":       bool(res.lr2[0] > res.cvm[0, ci5]),
+        "maxeig_pass_10pct":      bool(res.lr2[0] > res.cvm[0, ci10]),
     }
 
 # ---------------------------------------------------------------------------
-# 4. VAR lag selection — validate k_ar_diff used in Johansen test
+# 4. VAR lag selection -- validate k_ar_diff used in Johansen test
 #    Runs VAR.select_order() on differenced log prices for all 15 pairs.
-#    AIC, BIC, HQC, and FPE are reported; the dominant BIC-selected lag
-#    determines k_ar_diff used below.  This converts the lag choice from an
-#    assertion into a reproducible, data-driven decision.
+#    AIC, BIC, HQC, and FPE are reported; the median BIC-selected lag across
+#    all 15 pairs determines K_AR_DIFF, which is then applied uniformly to
+#    every Johansen test.  Using the median rather than a per-pair lag keeps
+#    the comparison consistent across pairs and prevents overfitting the lag
+#    to any individual pair's residuals.
 # ---------------------------------------------------------------------------
 print("\n" + "=" * 65)
-print("VAR LAG SELECTION — JOHANSEN k_ar_diff VALIDATION (maxlags=5)")
+print("VAR LAG SELECTION -- JOHANSEN k_ar_diff VALIDATION (maxlags=5)")
 print("=" * 65)
 print(f"  {'Pair':<12}  {'AIC':>5}  {'BIC':>5}  {'HQC':>5}  {'FPE':>5}")
 print(f"  {'-'*38}")
@@ -174,8 +191,10 @@ _bic_max     = int(_lag_df["BIC"].max())
 K_AR_DIFF    = max(1, _bic_median)   # never go below 1
 
 print(f"\n  BIC-selected lag summary: median={_bic_median}, max={_bic_max}")
-print(f"  → Using k_ar_diff={K_AR_DIFF} for all Johansen tests "
-      f"({'matches BIC median' if K_AR_DIFF == _bic_median else 'floor at 1'})")
+print(f"  -> Using k_ar_diff={K_AR_DIFF} (median BIC across all 15 pairs) "
+      f"for all Johansen tests")
+print(f"  Note: a shared lag is applied uniformly to all pairs rather than "
+      f"fitting a separate lag per pair.")
 
 # ---------------------------------------------------------------------------
 # 5. Run all tests for all 15 pairs
@@ -191,9 +210,8 @@ for a, b in pairs:
     log_a = log_price_df[a]
     log_b = log_price_df[b]
 
-    # OLS in both directions — pick the direction whose residuals are more
+    # OLS in both directions -- pick the direction whose residuals are more
     # stationary (lower ADF p-value = stronger evidence against unit root).
-    # pick_direction() encapsulates this logic so it is not repeated.
     (chosen_dir, hedge_ratio, intercept,
      resid, adf_stat, adf_pval, dep, indep) = pick_direction(log_a, log_b, a, b)
 
@@ -206,50 +224,66 @@ for a, b in pairs:
     pair_label = f"{a}/{b}"
     spreads[pair_label] = resid
 
-    eg_pass  = eg_pval < 0.05
-    joh_pass = joh["trace_pass"]
+    eg_pass     = eg_pval < 0.05
+    joh_pass_5  = joh["trace_pass_5pct"]
+    joh_pass_10 = joh["trace_pass_10pct"]
 
-    # Track which test(s) each pair satisfies
-    if eg_pass and joh_pass:
+    # Classify by which test(s) each pair satisfies.
+    # "Johansen 10%" means the Johansen trace test passes at 10% but not 5%;
+    # the pair is carried forward as a secondary candidate per supervisor
+    # instruction.
+    if eg_pass and joh_pass_5:
         tests_passed = "Both"
     elif eg_pass:
         tests_passed = "EG only"
-    elif joh_pass:
+    elif joh_pass_5:
         tests_passed = "Johansen only"
+    elif joh_pass_10:
+        tests_passed = "Johansen 10%"
     else:
         tests_passed = "Neither"
 
+    # Selected = True for primary criterion (EG or Johansen at 5%) OR for
+    # the secondary borderline criterion (Johansen trace at 10%).
+    selected = eg_pass or joh_pass_5 or joh_pass_10
+
     records.append({
-        "Pair":                     pair_label,
-        "OLS_direction":            chosen_dir,
-        "Hedge_ratio":              round(hedge_ratio, 4),
-        "Intercept":                round(intercept, 4),
-        "ADF_stat_on_residuals":    round(adf_stat, 4),
-        "ADF_pval_on_residuals":    round(adf_pval, 4),
-        "EG_stat":                  round(eg_stat, 4),
-        "EG_pval":                  round(eg_pval, 4),
-        "EG_cointegrated_5pct":     eg_pass,
-        "Johansen_trace_stat_r0":   joh["trace_stat_r0"],
-        "Johansen_trace_crit_r0":   joh["trace_crit_r0_5pct"],
-        "Johansen_trace_stat_r1":   joh["trace_stat_r1"],
-        "Johansen_trace_crit_r1":   joh["trace_crit_r1_5pct"],
-        "Johansen_maxeig_stat_r0":  joh["maxeig_stat_r0"],
-        "Johansen_maxeig_crit_r0":  joh["maxeig_crit_r0_5pct"],
-        "Johansen_trace_pass_5pct": joh_pass,
-        "Johansen_maxeig_pass_5pct":joh["maxeig_pass"],
-        "Both_methods_agree":       eg_pass and joh_pass,
-        "Tests_passed":             tests_passed,
-        "Selected":                 eg_pass or joh_pass,
+        "Pair":                       pair_label,
+        "OLS_direction":              chosen_dir,
+        "Hedge_ratio":                round(hedge_ratio, 4),
+        "Intercept":                  round(intercept, 4),
+        "ADF_stat_on_residuals":      round(adf_stat, 4),
+        "ADF_pval_on_residuals":      round(adf_pval, 4),
+        "EG_stat":                    round(eg_stat, 4),
+        "EG_pval":                    round(eg_pval, 4),
+        "EG_cointegrated_5pct":       eg_pass,
+        "Johansen_trace_stat_r0":     joh["trace_stat_r0"],
+        "Johansen_trace_crit_r0":     joh["trace_crit_r0_5pct"],
+        "Johansen_trace_crit_r0_10pct": joh["trace_crit_r0_10pct"],
+        "Johansen_trace_stat_r1":     joh["trace_stat_r1"],
+        "Johansen_trace_crit_r1":     joh["trace_crit_r1_5pct"],
+        "Johansen_maxeig_stat_r0":    joh["maxeig_stat_r0"],
+        "Johansen_maxeig_crit_r0":    joh["maxeig_crit_r0_5pct"],
+        "Johansen_maxeig_crit_r0_10pct": joh["maxeig_crit_r0_10pct"],
+        "Johansen_trace_pass_5pct":   joh_pass_5,
+        "Johansen_trace_pass_10pct":  joh_pass_10,
+        "Johansen_maxeig_pass_5pct":  joh["maxeig_pass_5pct"],
+        "Johansen_maxeig_pass_10pct": joh["maxeig_pass_10pct"],
+        "Both_methods_agree":         eg_pass and joh_pass_5,
+        "Tests_passed":               tests_passed,
+        "Selected":                   selected,
     })
 
-    eg_flag  = "PASS" if eg_pass  else "FAIL"
-    joh_flag = "PASS" if joh_pass else "FAIL"
+    eg_flag  = "PASS" if eg_pass   else "FAIL"
+    joh_flag = "PASS" if joh_pass_5 else ("10%" if joh_pass_10 else "FAIL")
     print(f"  {pair_label:<12}  dir={chosen_dir:<13}  "
           f"EG p={eg_pval:.4f} [{eg_flag}]  "
-          f"Johansen trace={joh['trace_stat_r0']:.2f} vs {joh['trace_crit_r0_5pct']:.2f} [{joh_flag}]")
+          f"Johansen trace={joh['trace_stat_r0']:.2f} vs "
+          f"{joh['trace_crit_r0_5pct']:.2f} (5%) / "
+          f"{joh['trace_crit_r0_10pct']:.2f} (10%) [{joh_flag}]")
 
 # ---------------------------------------------------------------------------
-# 5. Rank by EG p-value (ascending = stronger evidence of cointegration)
+# 5b. Rank by EG p-value (ascending = stronger evidence of cointegration)
 # ---------------------------------------------------------------------------
 results_df = pd.DataFrame(records)
 results_df["Rank"] = results_df["EG_pval"].rank(method="min").astype(int)
@@ -273,30 +307,47 @@ print(f"\nFull results saved -> {out_csv}")
 print("\n" + "=" * 65)
 print("RANKING TABLE -- BY ENGLE-GRANGER P-VALUE (ASCENDING)")
 print("=" * 65)
-hdr = f"{'Rank':<5} {'Pair':<12} {'OLS Direction':<14} {'HR':>7}  {'ADF p':>7}  {'EG p':>7}  {'EG':>6}  {'Johansen':>10}"
+hdr = (f"{'Rank':<5} {'Pair':<12} {'OLS Direction':<14} {'HR':>7}  "
+       f"{'ADF p':>7}  {'EG p':>7}  {'EG':>6}  {'Johansen':>10}")
 print(hdr)
 print("-" * len(hdr))
 for _, row in results_df.iterrows():
-    eg_tag  = "PASS" if row["EG_cointegrated_5pct"]     else "FAIL"
-    joh_tag = "PASS" if row["Johansen_trace_pass_5pct"] else "FAIL"
+    eg_tag  = "PASS" if row["EG_cointegrated_5pct"]    else "FAIL"
+    if row["Johansen_trace_pass_5pct"]:
+        joh_tag = "PASS"
+    elif row["Johansen_trace_pass_10pct"]:
+        joh_tag = "10%"
+    else:
+        joh_tag = "FAIL"
     print(f"  {row['Rank']:<4} {row['Pair']:<12} {row['OLS_direction']:<14} "
           f"{row['Hedge_ratio']:>7.4f}  "
           f"{row['ADF_pval_on_residuals']:>7.4f}  "
           f"{row['EG_pval']:>7.4f}  "
           f"{eg_tag:>6}  {joh_tag:>10}")
 
+# ---------------------------------------------------------------------------
+# 8. Shortlist -- selected pairs
+# ---------------------------------------------------------------------------
 shortlist = results_df[results_df["Selected"]]
 print(f"\n{'='*65}")
-print(f"SHORTLISTED PAIRS (at least one of EG or Johansen passes at 5%):")
+print("SHORTLISTED PAIRS")
 print(f"{'='*65}")
+print("  Primary criterion  : EG OR Johansen trace passes at 5%")
+print("  Secondary criterion: Johansen trace passes at 10% (supervisor-approved)")
+print()
 if len(shortlist) == 0:
-    print("  No pairs pass any cointegration test at 5% significance.")
+    print("  No pairs selected.")
 else:
     for _, row in shortlist.iterrows():
-        print(f"  Rank {row['Rank']}: {row['Pair']}  [{row['Tests_passed']}]  "
-              f"OLS dir={row['OLS_direction']}  HR={row['Hedge_ratio']}  "
+        basis = ("(secondary -- Johansen 10%, supervisor-approved)"
+                 if row["Tests_passed"] == "Johansen 10%"
+                 else "(primary)")
+        print(f"  Rank {row['Rank']}: {row['Pair']}  [{row['Tests_passed']}]  {basis}")
+        print(f"    OLS dir={row['OLS_direction']}  HR={row['Hedge_ratio']}  "
               f"EG p={row['EG_pval']:.4f}  "
-              f"Johansen trace={row['Johansen_trace_stat_r0']} vs {row['Johansen_trace_crit_r0']}")
+              f"Johansen trace={row['Johansen_trace_stat_r0']} "
+              f"vs {row['Johansen_trace_crit_r0']} (5%) "
+              f"/ {row['Johansen_trace_crit_r0_10pct']} (10%)")
 
 # ---------------------------------------------------------------------------
 # Multiple-comparisons note (Bonferroni correction)
@@ -309,10 +360,10 @@ shortlist_bonf = results_df[results_df["EG_pval"] < alpha_bonf]
 print(f"\n{'='*65}")
 print("MULTIPLE-COMPARISONS WARNING (Bonferroni correction)")
 print(f"{'='*65}")
-print(f"  Tests run        : {n_tests} pairs at nominal α={alpha_nominal}")
+print(f"  Tests run        : {n_tests} pairs at nominal alpha={alpha_nominal}")
 print(f"  Expected false positives by chance: "
       f"{n_tests * alpha_nominal:.2f}  (i.e. ~1 false positive is likely)")
-print(f"  Bonferroni threshold : α / {n_tests} = {alpha_bonf:.4f}")
+print(f"  Bonferroni threshold : alpha / {n_tests} = {alpha_bonf:.4f}")
 if len(shortlist_bonf) == 0:
     print(f"  Result: NO pair survives Bonferroni correction.")
     print(f"  The pair(s) shortlisted at 5% may be statistical false positives.")
@@ -324,8 +375,11 @@ print(f"  NOTE: Johansen confirmation reduces (but does not eliminate) the")
 print(f"  false-positive risk when the EG test alone is marginal.")
 
 # ---------------------------------------------------------------------------
-# 8. Plot OLS residual (spread) series for all 15 pairs
-#    Color: blue = both pass, orange = one passes, grey = neither
+# 9. Plot OLS residual (spread) series for all 15 pairs
+#    Blue     = both EG + Johansen pass at 5%
+#    Orange   = one of EG / Johansen passes at 5%
+#    Goldenrod = Johansen trace passes at 10% only (supervisor-approved)
+#    Grey     = neither
 # ---------------------------------------------------------------------------
 n_cols = 3
 n_rows = (len(pairs) + n_cols - 1) // n_cols   # 5 rows for 15 pairs
@@ -333,21 +387,25 @@ n_rows = (len(pairs) + n_cols - 1) // n_cols   # 5 rows for 15 pairs
 fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, n_rows * 3.4))
 fig.suptitle(
     "OLS Residual (Spread) Series -- All 15 Pairs (Log Prices, 2018-2025)\n"
-    "Blue = Both EG+Johansen pass | Orange = One method passes | Grey = Neither",
-    fontsize=12, y=1.01
+    "Blue = Both EG+Johansen 5% | Orange = One method 5% | "
+    "Gold = Johansen 10% only | Grey = Neither",
+    fontsize=11, y=1.01
 )
 
 axes_flat = axes.flatten()
 for i, (pair_label, resid) in enumerate(spreads.items()):
     ax = axes_flat[i]
     row = results_df[results_df["Pair"] == pair_label].iloc[0]
-    eg_pass  = row["EG_cointegrated_5pct"]
-    joh_pass = row["Johansen_trace_pass_5pct"]
+    eg_p     = row["EG_cointegrated_5pct"]
+    joh_p5   = row["Johansen_trace_pass_5pct"]
+    joh_p10  = row["Johansen_trace_pass_10pct"]
 
-    if eg_pass and joh_pass:
+    if eg_p and joh_p5:
         color, tag = "steelblue", "EG + JOH"
-    elif eg_pass or joh_pass:
-        color, tag = "darkorange", "EG" if eg_pass else "JOH"
+    elif eg_p or joh_p5:
+        color, tag = "darkorange", "EG" if eg_p else "JOH"
+    elif joh_p10:
+        color, tag = "goldenrod", "JOH 10%"
     else:
         color, tag = "slategray", "none"
 
@@ -371,16 +429,18 @@ plt.close()
 print(f"\nSpread chart saved -> {chart1}")
 
 # ---------------------------------------------------------------------------
-# 9. Ranking bar chart -- EG p-values, all 15 pairs
+# 10. Ranking bar chart -- EG p-values, all 15 pairs
 # ---------------------------------------------------------------------------
 fig2, ax2 = plt.subplots(figsize=(10, 6))
 bar_colors = [
-    "steelblue"   if (eg and joh) else
-    "darkorange"  if (eg or joh)  else
+    "steelblue"   if (eg and joh5) else
+    "darkorange"  if (eg or joh5)  else
+    "goldenrod"   if joh10         else
     "lightcoral"
-    for eg, joh in zip(
+    for eg, joh5, joh10 in zip(
         results_df["EG_cointegrated_5pct"],
-        results_df["Johansen_trace_pass_5pct"]
+        results_df["Johansen_trace_pass_5pct"],
+        results_df["Johansen_trace_pass_10pct"],
     )
 ]
 ax2.barh(
@@ -395,8 +455,9 @@ ax2.set_title("Cointegration Ranking -- All 15 Pairs (EG p-value)", fontsize=12)
 
 from matplotlib.patches import Patch
 legend_items = [
-    Patch(facecolor="steelblue",  label="Both EG + Johansen pass"),
-    Patch(facecolor="darkorange", label="One method passes"),
+    Patch(facecolor="steelblue",  label="Both EG + Johansen 5% pass"),
+    Patch(facecolor="darkorange", label="One of EG / Johansen 5% passes"),
+    Patch(facecolor="goldenrod",  label="Johansen trace 10% only (supervisor-approved)"),
     Patch(facecolor="lightcoral", label="Neither passes"),
     plt.Line2D([0], [0], color="red", linestyle="--", label="5% threshold"),
 ]
@@ -408,22 +469,25 @@ plt.close()
 print(f"Ranking chart saved -> {chart2}")
 
 # ---------------------------------------------------------------------------
-# 10. Comparison summary -- EG vs Johansen agreement
+# 11. Comparison summary -- EG vs Johansen agreement
 # ---------------------------------------------------------------------------
 print(f"\n{'='*65}")
 print("EG vs JOHANSEN AGREEMENT SUMMARY")
 print(f"{'='*65}")
-both  = results_df["Both_methods_agree"].sum()
+both      = results_df["Both_methods_agree"].sum()
 eg_only   = (results_df["EG_cointegrated_5pct"] & ~results_df["Johansen_trace_pass_5pct"]).sum()
 joh_only  = (~results_df["EG_cointegrated_5pct"] & results_df["Johansen_trace_pass_5pct"]).sum()
-neither   = (~results_df["EG_cointegrated_5pct"] & ~results_df["Johansen_trace_pass_5pct"]).sum()
-print(f"  Both EG and Johansen pass  : {both:2d} pair(s)")
-print(f"  EG only                    : {eg_only:2d} pair(s)")
-print(f"  Johansen only              : {joh_only:2d} pair(s)")
-print(f"  Neither                    : {neither:2d} pair(s)")
+joh_10    = (results_df["Tests_passed"] == "Johansen 10%").sum()
+neither   = (~results_df["EG_cointegrated_5pct"] & ~results_df["Johansen_trace_pass_5pct"]
+             & ~results_df["Johansen_trace_pass_10pct"]).sum()
+print(f"  Both EG and Johansen 5% pass  : {both:2d} pair(s)")
+print(f"  EG 5% only                    : {eg_only:2d} pair(s)")
+print(f"  Johansen 5% only              : {joh_only:2d} pair(s)")
+print(f"  Johansen 10% only (borderline): {joh_10:2d} pair(s)  [supervisor-approved secondary]")
+print(f"  Neither                       : {neither:2d} pair(s)")
 
 # ---------------------------------------------------------------------------
-# 11. NVDA restricted window check (2018-01-01 to 2022-12-31)
+# 12. NVDA restricted window check (2018-01-01 to 2022-12-31)
 #     Phase 2 EDA flagged that NVDA decoupled from peers from mid-2023 onward
 #     due to the AI/GPU-driven price surge. Restricting to 2018-2022 removes
 #     that structural break and gives the NVDA pairs the best possible chance
@@ -445,7 +509,6 @@ for a, b in nvda_pairs:
     log_a = log_nvda_window[a]
     log_b = log_nvda_window[b]
 
-    # Reuse shared helper — same direction-picking logic as the main loop.
     (chosen_dir, hedge_ratio, _intercept,
      resid, adf_stat, adf_pval, dep, indep) = pick_direction(log_a, log_b, a, b)
 
@@ -453,7 +516,7 @@ for a, b in nvda_pairs:
     joh = johansen(log_nvda_window[[a, b]], k_ar_diff=K_AR_DIFF)
 
     eg_pass  = eg_pval < 0.05
-    joh_pass = joh["trace_pass"]
+    joh_pass = joh["trace_pass_5pct"]
     eg_flag  = "PASS" if eg_pass  else "FAIL"
     joh_flag = "PASS" if joh_pass else "FAIL"
 
@@ -480,22 +543,34 @@ print(f"  break in NVDA from mid-2023, but the cointegrating relationship with p
 print(f"  stocks was also not established in the earlier period.")
 
 # ---------------------------------------------------------------------------
-# 12. Export selected_pairs.csv — contract for downstream phases
-#     Criterion: at least one of EG or Johansen passes at 5% significance
+# 13. Export selected_pairs.csv -- contract for downstream phases
+#
+#     Selection basis:
+#       Primary   -- at least one of EG or Johansen trace passes at 5%.
+#       Secondary -- Johansen trace passes at 10% (carried forward per
+#                    supervisor instruction); Tests_passed = "Johansen 10%".
+#
+#     The Tests_passed column records which criterion applies.
 # ---------------------------------------------------------------------------
 selected_cols = [
     "Pair", "OLS_direction", "Hedge_ratio", "Intercept",
     "EG_pval", "EG_cointegrated_5pct",
-    "Johansen_trace_stat_r0", "Johansen_trace_crit_r0",
-    "Johansen_trace_pass_5pct", "Tests_passed",
+    "Johansen_trace_stat_r0",
+    "Johansen_trace_crit_r0",       # 5% critical value
+    "Johansen_trace_crit_r0_10pct", # 10% critical value (for borderline pairs)
+    "Johansen_trace_pass_5pct",
+    "Johansen_trace_pass_10pct",
+    "Tests_passed",
 ]
 selected_df  = results_df[results_df["Selected"]][selected_cols].copy()
 selected_csv = REPORTS_DIR / "selected_pairs.csv"
 selected_df.to_csv(selected_csv, index=False)
 print(f"\nSelected pairs ({len(selected_df)}) saved -> {selected_csv}")
-print(f"  Selection criterion: EG OR Johansen passes at 5% significance")
 for _, row in selected_df.iterrows():
-    print(f"    {row['Pair']:<12}  [{row['Tests_passed']}]  "
+    basis = ("secondary (Johansen 10%, supervisor-approved)"
+             if row["Tests_passed"] == "Johansen 10%"
+             else "primary (5%)")
+    print(f"  {row['Pair']:<12}  [{row['Tests_passed']}]  {basis}  "
           f"dir={row['OLS_direction']}  HR={row['Hedge_ratio']}")
 
 print(f"\n{'='*65}")
@@ -507,5 +582,10 @@ print(f"  {selected_csv}")
 print(f"  {nvda_csv}")
 print(f"  {chart1}")
 print(f"  {chart2}")
-print(f"\nSelection criterion: at least one of EG or Johansen passes at 5%.")
-print(f"Next step: Phase 3b -- pairs trading strategy on selected pairs.")
+print(f"\nSelection:")
+print(f"  Primary   -- EG or Johansen trace at 5%  -> AMZN/META")
+print(f"  Secondary -- Johansen trace at 10% (supervisor-approved) -> MSFT/AAPL")
+print(f"\nNext step: Phase 3b -- pairs trading strategy on selected pairs.")
+
+if __name__ == "__main__":
+    pass

@@ -45,9 +45,12 @@ python src/phase4_unseen.py        # mean-reversion test on unseen 2026 data
 
 ## Pair selection criterion
 
-Phase 3 selects pairs that pass **at least one** of the two cointegration tests
-(Engle-Granger OR Johansen) at the 5% significance level. This is tracked in the
-`Tests_passed` column of `selected_pairs.csv` ("Both", "EG only", or "Johansen only").
+Phase 3 applies a two-tier selection:
+
+- **Primary** — at least one of Engle-Granger or Johansen trace passes at 5%. Tracked as `Tests_passed` = "Both", "EG only", or "Johansen only" in `selected_pairs.csv`.
+- **Secondary** — Johansen trace passes at 10% but not 5%; the pair is carried forward as a borderline candidate per supervisor instruction. Tracked as `Tests_passed` = "Johansen 10%".
+
+Running `phase3_cointegration.py` selects **AMZN/META** (primary) and **MSFT/AAPL** (secondary, Johansen trace 10%).
 
 ## Key outputs
 
